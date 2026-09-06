@@ -1,0 +1,145 @@
+#!/usr/bin/env python3
+"""Contract tests for the thin Codex-to-wrapper MCP adapter."""
+
+from __future__ import annotations
+
+import importlib.util
+import io
+import json
+from pathlib import Path
+import sys
+import types
+import unittest
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SPEC = importlib.util.spec_from_file_location(
+    "antigravity_codex_mcp", ROOT / "codex" / "mcp_server.py"
+)
+assert SPEC and SPEC.loader
+mcp = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(mcp)
+
+
+class McpAdapterTests(unittest.TestCase):
+    def setUp(self):
+        self.calls = []
+        self.old_run = mcp.subprocess.run
+        self.old_bash = mcp._bash
+        mcp._bash = lambda: "bash"
+
+        def fake_run(argv, **kwargs):
+            self.calls.append((list(argv), kwargs))
+            return types.SimpleNamespace(returncode=0, stdout="OK\n", stderr="")
+
+        mcp.subprocess.run = fake_run
+
+    def tearDown(self):
+        mcp.subprocess.run = self.old_run
+        mcp._bash = self.old_bash
+
+    def wrapper(self):
+        return Path(self.calls[-1][0][1]).name
+
+    def test_all_declared_tools_dispatch_to_existing_wrappers(self):
+        cases = [
+            ("delegate", {"prompt": "p", "tier": "flash", "yolo": True}, "agy-delegate.sh"),
+            ("scout", {"question": "q"}, "agy-scout.sh"),
+            ("review", {"goal": "g", "scope": "staged"}, "agy-review.sh"),
+            ("research", {"query": "q"}, "agy-delegate.sh"),
+            ("media", {"file": "x.png"}, "agy-media.sh"),
+            ("job", {"action": "list"}, "agy-job.sh"),
+            ("trace", {"action": "last"}, "agy-trace.sh"),
+            ("doctor", {}, "doctor.sh"),
+            ("migrate", {"arguments": ["--help"]}, "agy-migrate.py"),
+            ("cloud_debug", {"service": "svc", "print_command": True}, "cloud-debug.sh"),
+            ("cost", {"prompt": "p"}, "agy-cost-compare.sh"),
+        ]
+        self.assertEqual([tool["name"] for tool in mcp.TOOLS], [case[0] for case in cases])
+        for name, args, expected in cases:
+            with self.subTest(name=name):
+                mcp._dispatch(name, args)
+                self.assertEqual(self.wrapper(), expected)
+
+    def test_plugin_mcp_config_is_relocatable_and_allows_long_calls(self):
+        config = json.loads((ROOT / "codex" / ".mcp.json").read_text(encoding="utf-8"))
+        server = config["mcpServers"]["antigravity"]
+        self.assertEqual(server["cwd"], ".")
+        self.assertEqual(server["args"], ["./codex/mcp_server.py"])
+        self.assertNotIn("PLUGIN_ROOT", json.dumps(server))
+        self.assertGreaterEqual(server["tool_timeout_sec"], 300)
+
+    def test_mcp_responses_are_written_as_utf8_bytes_on_windows(self):
+        class Cp1252Stdout:
+            def __init__(self):
+                self.buffer = io.BytesIO()
+
+            def write(self, value):
+                value.encode("cp1252")
+
+            def flush(self):
+                pass
+
+        old_stdout = sys.stdout
+        fake_stdout = Cp1252Stdout()
+        try:
+            sys.stdout = fake_stdout
+            mcp._send({"status": "✓"})
+        finally:
+            sys.stdout = old_stdout
+        self.assertEqual(json.loads(fake_stdout.buffer.getvalue()), {"status": "✓"})
+
+    def test_delegate_forwards_model_permissions_timeouts_and_dirs(self):
+        mcp._dispatch(
+            "delegate",
+            {
+                "prompt": "do it",
+                "directory": str(ROOT),
+                "add_dirs": [str(ROOT / "tests")],
+                "tier": "flash-lo",
+                "model": "Exact Model",
+                "timeout": "7m",
+                "idle_timeout": 430,
+                "yolo": True,
+                "sandbox": True,
+                "digest": True,
+                "mode": "accept-edits",
+                "conversation": "abc",
+            },
+        )
+        argv = self.calls[-1][0]
+        for expected in (
+            "--tier", "flash-lo", "--model", "Exact Model", "--timeout", "7m",
+            "--idle-timeout", "430", "--yolo", "--sandbox", "--digest",
+            "--mode", "accept-edits", "--conversation", "abc", "do it",
+        ):
+            self.assertIn(expected, argv)
+        self.assertEqual(argv.count("--dir"), 2)
+
+    def test_exit_code_stdout_and_stderr_are_preserved(self):
+        def failed(argv, **kwargs):
+            return types.SimpleNamespace(returncode=12, stdout="partial", stderr="TIMEOUT")
+
+        mcp.subprocess.run = failed
+        response = mcp.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 7,
+                "method": "tools/call",
+                "params": {"name": "delegate", "arguments": {"prompt": "p"}},
+            }
+        )
+        result = response["result"]
+        self.assertTrue(result["isError"])
+        self.assertEqual(result["structuredContent"]["exit_code"], 12)
+        self.assertEqual(result["structuredContent"]["stdout"], "partial")
+        self.assertEqual(result["structuredContent"]["stderr"], "TIMEOUT")
+        self.assertEqual(json.loads(result["content"][0]["text"])["exit_code"], 12)
+
+    def test_range_review_requires_a_range(self):
+        with self.assertRaisesRegex(ValueError, "requires range"):
+            mcp._dispatch("review", {"goal": "g", "scope": "range"})
+
+
+if __name__ == "__main__":
+    unittest.main()

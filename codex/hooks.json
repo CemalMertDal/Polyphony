@@ -1,0 +1,31 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${PLUGIN_ROOT}/hooks/agy_opportunity_reminder.py\"",
+            "command_windows": "python \"${PLUGIN_ROOT}\\hooks\\agy_opportunity_reminder.py\"",
+            "timeout": 10,
+            "statusMessage": "Resetting Agy opportunity reminders"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${PLUGIN_ROOT}/hooks/agy_opportunity_reminder.py\"",
+            "command_windows": "python \"${PLUGIN_ROOT}\\hooks\\agy_opportunity_reminder.py\"",
+            "timeout": 10,
+            "statusMessage": "Checking for an Agy delegation opportunity"
+          }
+        ]
+      }
+    ]
+  }
+}

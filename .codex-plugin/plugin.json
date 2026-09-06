@@ -1,0 +1,24 @@
+{
+  "name": "antigravity",
+  "version": "0.27.0",
+  "description": "Delegate focused work from Codex to Antigravity CLI workers through the existing tested wrappers.",
+  "author": {
+    "name": "GryAsl",
+    "url": "https://github.com/GryAsl"
+  },
+  "homepage": "https://github.com/GryAsl/antigravity-for-claude-code-and-codex",
+  "repository": "https://github.com/GryAsl/antigravity-for-claude-code-and-codex",
+  "license": "MIT",
+  "keywords": ["antigravity", "gemini", "codex", "delegation", "windows", "conpty"],
+  "skills": "./codex/skills/",
+  "mcpServers": "./codex/.mcp.json",
+  "hooks": "./codex/hooks.json",
+  "interface": {
+    "displayName": "Antigravity for Claude Code and Codex",
+    "shortDescription": "Use Antigravity workers from Codex",
+    "longDescription": "Delegation, repository scouting, review, research, media, jobs, traces, diagnostics, migration, Cloud debugging, and cost comparison through the existing Antigravity wrappers.",
+    "developerName": "GryAsl",
+    "category": "Developer Tools",
+    "capabilities": ["Read", "Write"]
+  }
+}
