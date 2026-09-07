@@ -12,7 +12,7 @@ SCOPE="worktree"
 SCOPE_SET=0
 RANGE=""
 TIER="flash"
-TIMEOUT="5m"
+TIMEOUT="30m"
 ADVERSARIAL=0
 PATHS=()
 MAX_BYTES="${AGY_REVIEW_MAX_BYTES:-49152}"
@@ -32,7 +32,7 @@ Usage: agy-review [options] [goal]
   --path <pathspec>     Limit scope; repeatable
   --adversarial         Also challenge design and tradeoffs
   --tier <flash|pro>    Reviewer tier (default: flash)
-  --timeout <duration>  Delegation timeout (default: 5m)
+  --timeout <duration>  Delegation timeout (default: 30m)
 
 The raw diff is sent only to agy. Untracked file contents are deliberately excluded;
 stage them or review them by path after adding them to Git.

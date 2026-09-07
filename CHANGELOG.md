@@ -3,6 +3,14 @@
 All notable changes to **Antigravity for Claude Code and Codex**. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions are in `.claude-plugin/plugin.json`.
 
+## 0.27.1 — Long-running delegation timeouts
+
+- Raised the Codex MCP tool-call timeout from 5 minutes to 30 minutes so long-running
+  Antigravity delegates remain attached instead of continuing after Codex gives up waiting.
+- Raised the default Claude/Codex wrapper timeout to 30 minutes for delegate, scout, review,
+  and media calls. An explicit `--timeout` still overrides the default.
+- Added regression assertions for the packaged MCP timeout and wrapper default.
+
 ## 0.27.0 — Independent Claude Code and Codex package
 
 - Preserved the 0.26.1 Claude Code commands, skill, agent, hooks, wrappers, tier mappings,

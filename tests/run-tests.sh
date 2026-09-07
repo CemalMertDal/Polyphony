@@ -10,6 +10,9 @@ set -uo pipefail
 # Git Bash. Dedicated adapter tests below cover the native-Windows ConPTY branch.
 export AGY_TEST_FORCE_POSIX=1
 export PYTHONUTF8=1
+# Keep permission-policy cases deterministic even when the developer's machine
+# globally enables AGY yolo. Individual cases set these variables explicitly.
+unset AGY_ALWAYS_YOLO CLAUDE_PLUGIN_OPTION_ALWAYS_YOLO
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 BASH_BIN="$(command -v bash)"
@@ -431,14 +434,14 @@ check "tier_flash remap -> flash uses remapped model" 0 "$rc" "Claude Sonnet 4.5
 
 # default + userConfig timeout, with explicit flag winning
 out=$(STUB_MODE=args "$DELEGATE" "hi" 2>/dev/null); rc=$?
-check "default timeout -> --print-timeout 5m" 0 "$rc" "--print-timeout 5m" "$out"
+check "default timeout -> --print-timeout 30m" 0 "$rc" "--print-timeout 30m" "$out"
 out=$(STUB_MODE=args CLAUDE_PLUGIN_OPTION_TIMEOUT=9m "$DELEGATE" "hi" 2>/dev/null); rc=$?
 check "userConfig timeout=9m -> --print-timeout 9m" 0 "$rc" "--print-timeout 9m" "$out"
 out=$(STUB_MODE=args CLAUDE_PLUGIN_OPTION_TIMEOUT=9m "$DELEGATE" --timeout 3m "hi" 2>/dev/null); rc=$?
 check "explicit --timeout overrides userConfig" 0 "$rc" "--print-timeout 3m" "$out"
 
 # Native Windows structured output can be silent for the whole agentic turn. Pin the
-# regression that killed healthy broad scouts at a fixed 120s despite a 5m/10m hard wall.
+# regression that killed healthy broad scouts at a fixed 120s despite a longer hard wall.
 if grep -qF 'BRIDGE_IDLE_TIMEOUT="${AGY_BRIDGE_IDLE_TIMEOUT:-120}"' "$DELEGATE"; then
   echo "FAIL: Windows bridge still defaults idle timeout to fixed 120s"; FAIL=$((FAIL+1));
 else echo "ok: Windows bridge no longer defaults idle timeout to fixed 120s"; PASS=$((PASS+1)); fi
@@ -461,7 +464,7 @@ check "agy missing -> exit 13 + AGY_MISSING signal" 13 "$rc" "AGY_MISSING" "$out
 
 # --print-command: dry run prints the resolved agy invocation and exits 0 (agy not run)
 out=$("$DELEGATE" --tier pro --print-command "hi" 2>/dev/null); rc=$?
-check "--print-command -> exit 0 + resolved flags" 0 "$rc" "--print-timeout 5m" "$out"
+check "--print-command -> exit 0 + resolved flags" 0 "$rc" "--print-timeout 30m" "$out"
 check "--print-command shows the tier model" 0 "$rc" "Pro" "$out"
 out=$(PATH="/usr/bin:/bin" "$DELEGATE" --print-command "hi" 2>/dev/null); rc=$?
 check "--print-command works without agy on PATH" 0 "$rc" "--print-timeout" "$out"
@@ -1479,8 +1482,11 @@ MDIR="$TMP/media"; mkdir -p "$MDIR"
 out=$(AGY_DELEGATE=/nonexistent "$MEDIA" "$MDIR/clip.wav" --print-command 2>/dev/null); rc=$?
 check "media dry-run resolves a delegation" 0 "$rc" "agy-delegate" "$out"
 check "media passes --yolo (needed to read media)" 0 "$rc" "--yolo" "$out"
+check "media defaults to a 30m timeout" 0 "$rc" "--timeout 30m" "$out"
 check "media requests a timestamped transcript file" 0 "$rc" "clip.transcript.md" "$out"
 check "media enforces the digest contract" 0 "$rc" "ONLY a compact digest" "$out"
+out=$(AGY_DELEGATE=/nonexistent "$MEDIA" "$MDIR/clip.wav" --timeout 7m --print-command 2>/dev/null); rc=$?
+check "media forwards an explicit timeout override" 0 "$rc" "--timeout 7m" "$out"
 out=$(AGY_DELEGATE=/nonexistent "$MEDIA" "$MDIR/demo.mp4" --print-command 2>/dev/null); rc=$?
 check "media asks for VISUALS on video" 0 "$rc" "VISUALS" "$out"
 out=$(AGY_DELEGATE=/nonexistent "$MEDIA" "$MDIR/clip.wav" "the pricing numbers" --print-command 2>/dev/null); rc=$?

@@ -53,7 +53,8 @@ if AGY_DELEGATE="$STUB" AGY_CAPTURE="$CAP" "$REVIEW" --dir "$REPO" --goal "only 
   has "$CAP.stdin" STAGED_SENTINEL_41A7 && has "$CAP.stdin" WORKTREE_SENTINEL_92BC \
     && lacks "$CAP.stdin" UNTRACKED_SENTINEL_F00D && ok "worktree patch goes to agy; untracked contents do not" \
     || bad "worktree payload scope"
-  has "$CAP.args" flash && has "$CAP.args" --digest && has "$CAP.out" 'VERDICT: CONFIRMED' \
+  has "$CAP.args" flash && has "$CAP.args" --digest && has "$CAP.args" 30m \
+    && has "$CAP.out" 'VERDICT: CONFIRMED' \
     && lacks "$CAP.out" STAGED_SENTINEL_41A7 && ok "Claude-facing output is only the compact verdict" \
     || bad "compact review output"
   has "$CAP.err" 'untracked contents are excluded' && ok "untracked review gap is explicit" \
@@ -65,8 +66,9 @@ else
 fi
 
 CAP="$TMP/staged"
-if AGY_DELEGATE="$STUB" AGY_CAPTURE="$CAP" "$REVIEW" --dir "$REPO" --staged >"$CAP.out" 2>"$CAP.err"; then
+if AGY_DELEGATE="$STUB" AGY_CAPTURE="$CAP" "$REVIEW" --dir "$REPO" --staged --timeout 7m >"$CAP.out" 2>"$CAP.err"; then
   has "$CAP.stdin" STAGED_SENTINEL_41A7 && lacks "$CAP.stdin" WORKTREE_SENTINEL_92BC \
+    && has "$CAP.args" 7m \
     && ok "--staged isolates the index" || bad "--staged scope"
 else
   bad "staged review exits zero"
@@ -74,13 +76,21 @@ fi
 
 CAP="$TMP/scout"
 if AGY_DELEGATE="$STUB" AGY_CAPTURE="$CAP" "$SCOUT" --dir "$REPO" "trace the fixture" >"$CAP.out" 2>"$CAP.err"; then
-  has "$CAP.args" flash && has "$CAP.args" plan && has "$CAP.args" "$REPO" \
+  has "$CAP.args" flash && has "$CAP.args" plan && has "$CAP.args" 30m && has "$CAP.args" "$REPO" \
     && has "$CAP.args" 'READ-ONLY repository investigation' && has "$CAP.args" 'NEXT_LIKELY_GAP' \
     && ok "scout builds the fixed read-only Flash contract" || bad "scout contract"
   has "$CAP.out" 'DIGEST: scout saw the fixture' && ok "scout returns only its digest" \
     || bad "scout output"
 else
   bad "scout exits zero"
+fi
+
+CAP="$TMP/scout-timeout"
+if AGY_DELEGATE="$STUB" AGY_CAPTURE="$CAP" "$SCOUT" --dir "$REPO" --timeout 7m "trace the fixture" >"$CAP.out" 2>"$CAP.err" \
+  && has "$CAP.args" 7m; then
+  ok "scout forwards an explicit timeout override"
+else
+  bad "scout timeout override"
 fi
 
 CAP="$TMP/oversize"

@@ -61,13 +61,28 @@ class McpAdapterTests(unittest.TestCase):
                 mcp._dispatch(name, args)
                 self.assertEqual(self.wrapper(), expected)
 
-    def test_plugin_mcp_config_is_relocatable_and_allows_long_calls(self):
+    def test_packaged_timeout_policy_allows_long_codex_and_claude_calls(self):
         config = json.loads((ROOT / "codex" / ".mcp.json").read_text(encoding="utf-8"))
         server = config["mcpServers"]["antigravity"]
         self.assertEqual(server["cwd"], ".")
         self.assertEqual(server["args"], ["./codex/mcp_server.py"])
         self.assertNotIn("PLUGIN_ROOT", json.dumps(server))
-        self.assertGreaterEqual(server["tool_timeout_sec"], 300)
+        self.assertGreaterEqual(server["tool_timeout_sec"], 1800)
+
+        claude_manifest = json.loads(
+            (ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(claude_manifest["userConfig"]["timeout"]["default"], "30m")
+        for script, expected in (
+            ("agy-delegate.sh", 'CLAUDE_PLUGIN_OPTION_TIMEOUT:-30m'),
+            ("agy-delegate.sh", 'n=1800; unit=s'),
+            ("agy-scout.sh", 'TIMEOUT="30m"'),
+            ("agy-review.sh", 'TIMEOUT="30m"'),
+            ("agy-media.sh", 'TIMEOUT="30m"'),
+        ):
+            with self.subTest(script=script):
+                text = (ROOT / "scripts" / script).read_text(encoding="utf-8")
+                self.assertIn(expected, text)
 
     def test_mcp_responses_are_written_as_utf8_bytes_on_windows(self):
         class Cp1252Stdout:

@@ -6,13 +6,13 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 DELEGATE="${AGY_DELEGATE:-$HERE/agy-delegate.sh}"
 DIR="."
-TIMEOUT="10m"
+TIMEOUT="30m"
 QUESTION=""
 MAX_OUTPUT="${AGY_SCOUT_MAX_OUTPUT_CHARS:-8000}"
 
 usage() {
   cat <<'EOF'
-Usage: agy-scout --dir <repo> [--timeout 10m] "question"
+Usage: agy-scout --dir <repo> [--timeout 30m] "question"
 
 Runs one read-only Gemini 3.7 Flash planning scout and returns only a compact,
 evidence-based digest. It never passes --yolo.

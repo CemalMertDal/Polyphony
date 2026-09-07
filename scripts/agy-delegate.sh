@@ -22,7 +22,7 @@
 # Options:
 #   -t, --tier <flash|flash-lo|pro>  Model tier (default: flash)
 #   -d, --dir  <path>                Add a workspace dir (repeatable)
-#       --timeout <dur>              Print-mode timeout, e.g. 10m (default: 5m)
+#       --timeout <dur>              Print-mode timeout, e.g. 45m (default: 30m)
 #       --idle-timeout <secs>        Native Windows no-output timeout. Default: just
 #                                    above the hard timeout, so JSON work may finish
 #       --yolo                       Auto-approve all tool permissions (DANGEROUS)
@@ -67,7 +67,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
 TIER="${CLAUDE_PLUGIN_OPTION_DEFAULT_TIER:-flash}"
-TIMEOUT="${CLAUDE_PLUGIN_OPTION_TIMEOUT:-5m}"
+TIMEOUT="${CLAUDE_PLUGIN_OPTION_TIMEOUT:-30m}"
 IDLE_TIMEOUT="${CLAUDE_PLUGIN_OPTION_IDLE_TIMEOUT:-}"
 IDLE_TIMEOUT_EXPLICIT=0
 TIER_EXPLICIT=0
@@ -215,9 +215,9 @@ windows_path() {
 }
 # Convert an agy duration (5m, 300s, 1h, or bare seconds) to whole seconds.
 duration_secs() {
-  local d="${1:-5m}" n unit secs
+  local d="${1:-30m}" n unit secs
   n="${d%[smh]}"; unit="${d#"$n"}"
-  case "$n" in (*[!0-9]*|'') n=300; unit=s ;; esac
+  case "$n" in (*[!0-9]*|'') n=1800; unit=s ;; esac
   case "$unit" in
     h) secs=$(( n * 3600 )) ;;
     m) secs=$(( n * 60 )) ;;
@@ -241,7 +241,7 @@ timeout_cmd() {
 # whole seconds, then add a small head-room margin so the OUTER wall-clock guard
 # fires only AFTER agy's own --print-timeout has had its chance. Echoes seconds.
 outer_timeout_secs() {
-  local secs; secs="$(duration_secs "${1:-5m}")"
+  local secs; secs="$(duration_secs "${1:-30m}")"
   # head-room so the OUTER guard never pre-empts agy's own --print-timeout on a
   # legitimately-slow-but-progressing call: +25% of the budget, min 10s, capped 120s.
   local pad=$(( secs / 4 ))
@@ -482,7 +482,7 @@ if on_windows_native; then
       *)
         # Structured print mode may remain completely silent while an agentic turn
         # is doing useful work. A fixed 120s idle limit killed broad repo scouts
-        # before their 5m/10m print timeout. Unless configured, keep idle just past
+        # before their hard print timeout. Unless configured, keep idle just past
         # the hard wall so agy's inner print timeout gets the first chance to fire.
         if [ "$IDLE_TIMEOUT_EXPLICIT" -eq 1 ]; then
           BRIDGE_IDLE_TIMEOUT="$IDLE_TIMEOUT"

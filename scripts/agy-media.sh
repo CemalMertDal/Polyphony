@@ -29,7 +29,7 @@
 #       --convert         Auto-convert an unsupported audio format to wav first
 #                         (uses afconvert on macOS, else ffmpeg; writes next to the source)
 #   -t, --tier <tier>     Delegation tier (default: pro — better at timestamps/diarization)
-#       --timeout <dur>   agy print-timeout (default: 15m; long media needs headroom)
+#       --timeout <dur>   agy print-timeout (default: 30m; long media needs headroom)
 #       --print-command   Show the resolved agy-delegate call and exit (dry run)
 #   -h, --help            Show this help
 #
@@ -42,7 +42,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 DELEGATE="${AGY_DELEGATE:-$HERE/agy-delegate.sh}"
 
-FILE=""; FOCUS=""; OUT=""; TIER="pro"; TIMEOUT="15m"; CONVERT=0; PRINT_CMD=0
+FILE=""; FOCUS=""; OUT=""; TIER="pro"; TIMEOUT="30m"; CONVERT=0; PRINT_CMD=0
 
 die()   { echo "agy-media: $*" >&2; exit 1; }
 need()  { [ "$1" -ge 2 ] || die "option '$2' needs a value"; }

@@ -1,6 +1,6 @@
 {
   "name": "antigravity",
-  "version": "0.27.0",
+  "version": "0.27.1",
   "description": "Run the Antigravity CLI (Gemini) as a collaborating worker from Claude Code and Codex, including native Windows ConPTY support.",
   "author": {
     "name": "GryAsl"
@@ -33,8 +33,8 @@
     "timeout": {
       "type": "string",
       "title": "Default delegation timeout",
-      "description": "Default agy print-mode timeout when --timeout is not passed, e.g. 5m, 10m, 300s.",
-      "default": "5m"
+      "description": "Default agy print-mode timeout when --timeout is not passed, e.g. 30m, 45m, 1h.",
+      "default": "30m"
     },
     "idle_timeout": {
       "type": "string",

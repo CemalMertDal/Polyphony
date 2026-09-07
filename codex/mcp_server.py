@@ -461,7 +461,7 @@ def handle_request(req: dict) -> dict | None:
             "result": {
                 "protocolVersion": requested or PROTOCOL_VERSION,
                 "capabilities": {"tools": {"listChanged": False}},
-                "serverInfo": {"name": "antigravity-wrappers", "version": "0.27.0"},
+                "serverInfo": {"name": "antigravity-wrappers", "version": "0.27.1"},
             },
         }
     if method == "notifications/initialized":
