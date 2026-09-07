@@ -67,7 +67,7 @@ class McpAdapterTests(unittest.TestCase):
         self.assertEqual(server["cwd"], ".")
         self.assertEqual(server["args"], ["./codex/mcp_server.py"])
         self.assertNotIn("PLUGIN_ROOT", json.dumps(server))
-        self.assertGreaterEqual(server["tool_timeout_sec"], 1800)
+        self.assertGreaterEqual(server["tool_timeout_sec"], 2100)
 
         claude_manifest = json.loads(
             (ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")

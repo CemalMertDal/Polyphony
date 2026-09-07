@@ -51,7 +51,7 @@ codex plugin marketplace add https://github.com/GryAsl/antigravity-for-claude-co
 codex plugin add antigravity@antigravity-for-claude-code-and-codex
 ```
 
-Start a new Codex task after installation. The plugin exposes direct MCP tools for delegate, scout, review, research, media, jobs, trace, doctor, migrate, cloud-debug, and cost operations. MCP tool calls may run for up to 30 minutes, preventing Codex from detaching from healthy long-running Antigravity work after five minutes. Claude and Codex wrapper calls also default to 30 minutes; an explicit `--timeout` can still select a shorter or longer task limit. Review and trust the optional non-blocking reminder hook with `/hooks`; Codex intentionally does not trust plugin hooks automatically.
+Start a new Codex task after installation. The plugin exposes direct MCP tools for delegate, scout, review, research, media, jobs, trace, doctor, migrate, cloud-debug, and cost operations. The Codex MCP transport waits up to 35 minutes, while Claude and Codex wrapper calls default to 30 minutes; this leaves response headroom and prevents Codex from detaching from healthy long-running Antigravity work after five minutes. An explicit `--timeout` can select a different wrapper deadline; keep it below 35 minutes unless the MCP ceiling is also raised. Review and trust the optional non-blocking reminder hook with `/hooks`; Codex intentionally does not trust plugin hooks automatically.
 
 ## Usage
 

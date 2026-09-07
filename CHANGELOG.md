@@ -3,6 +3,11 @@
 All notable changes to **Antigravity for Claude Code and Codex**. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions are in `.claude-plugin/plugin.json`.
 
+## 0.27.2 — Codex timeout headroom
+
+- Raised the Codex MCP transport ceiling to 35 minutes, leaving five minutes of
+  response headroom beyond the 30-minute default wrapper deadline.
+
 ## 0.27.1 — Long-running delegation timeouts
 
 - Raised the Codex MCP tool-call timeout from 5 minutes to 30 minutes so long-running
