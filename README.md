@@ -2,19 +2,27 @@
 
 # 🛰️ Antigravity for Claude Code and Codex
 
-**Run the Antigravity CLI (Gemini) as a collaborating worker from Claude Code or Codex.**
-![Antigravity for Claude Code — Claude directs, Gemini executes](docs/hero.png)
-Claude or Codex conducts the judgement; Gemini does the heavy lifting.
+**Use the Antigravity CLI (Gemini) as a collaborating worker from Claude Code or Codex.**
+
+![Antigravity for Claude Code and Codex — Claude or Codex directs, Gemini executes](docs/hero.png)
+
+Claude or Codex directs the work; Gemini handles the delegated execution.
 
 </div>
 
 ---
 
-## What this repository does
+## Overview
 
-This plugin lets Claude Code and Codex delegate suitable work to the Antigravity CLI (`agy`). It keeps the existing delegation, scouting, review, background-job, media, trace, doctor, migration, Cloud-debug, and cost tools while adding a native Codex MCP surface.
+This plugin gives Claude Code and Codex the same Antigravity (`agy`) worker toolkit:
 
-Native Windows headless calls use the bundled `agy-headless-bridge` v1.2.1 source through Windows ConPTY. The bridge does not need to be installed separately.
+- scoped implementation and general delegation
+- read-only repository scouting and independent diff review
+- web research and media analysis
+- background jobs, traces, diagnostics, migration, Cloud debugging, and cost comparison
+- non-blocking reminders when a task could be delegated to Gemini
+
+Native Windows headless execution uses the bundled `agy-headless-bridge` v1.2.1 through Windows ConPTY. No separate bridge installation is required.
 
 ## Requirements
 
@@ -22,9 +30,9 @@ Native Windows headless calls use the bundled `agy-headless-bridge` v1.2.1 sourc
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code), Codex, or both
 - Python 3.9 or newer
 - [pywinpty](https://pypi.org/project/pywinpty/) on native Windows
-- Git Bash, normally installed with [Git for Windows](https://git-scm.com/download/win), because the existing wrappers are Bash scripts
+- Git Bash, normally included with [Git for Windows](https://git-scm.com/download/win), because the wrappers are Bash scripts
 
-Install the only Python runtime dependency needed on native Windows, then authenticate `agy` once:
+On native Windows, install `pywinpty` and authenticate Antigravity once:
 
 ```powershell
 py -3 -m pip install -U pywinpty
@@ -32,9 +40,9 @@ agy
 agy models
 ```
 
-## Claude Code installation
+## Install for Claude Code
 
-Run inside Claude Code:
+Run these commands inside Claude Code:
 
 ```text
 /plugin marketplace add GryAsl/antigravity-for-claude-code-and-codex
@@ -42,47 +50,59 @@ Run inside Claude Code:
 /antigravity:setup
 ```
 
-The existing slash commands, skill, custom agent, hooks, wrapper behavior, model tiers, timeouts, structured output, exit codes, and opt-in `--yolo` behavior are preserved.
+The plugin installs its slash commands, Antigravity skill, custom agent, wrappers, and optional delegation-reminder hooks.
 
-## Codex installation
+## Install for Codex
 
 ```powershell
 codex plugin marketplace add https://github.com/GryAsl/antigravity-for-claude-code-and-codex
 codex plugin add antigravity@antigravity-for-claude-code-and-codex
 ```
 
-Start a new Codex task after installation. The plugin exposes direct MCP tools for delegate, scout, review, research, media, jobs, trace, doctor, migrate, cloud-debug, and cost operations. The Codex MCP transport waits up to 35 minutes, while Claude and Codex wrapper calls default to 30 minutes; this leaves response headroom and prevents Codex from detaching from healthy long-running Antigravity work after five minutes. An explicit `--timeout` can select a different wrapper deadline; keep it below 35 minutes unless the MCP ceiling is also raised. Review and trust the optional non-blocking reminder hook with `/hooks`; Codex intentionally does not trust plugin hooks automatically.
+Start a new Codex task after installation. Codex receives direct MCP tools for delegation, scouting, review, research, media, jobs, traces, diagnostics, migration, Cloud debugging, and cost comparison. Review and trust the optional non-blocking hooks from `/hooks`; Codex does not trust plugin hooks automatically.
+
+## Model routing
+
+The caller should choose the tier that matches the task:
+
+| Tier | Use it for | Model selection |
+| --- | --- | --- |
+| `flash-medium` | Simple, routine, mechanical, or tightly bounded work | Newest available Gemini Flash, Medium effort |
+| `flash` | Complex reasoning, architecture, concurrency/security, difficult debugging, ambiguous multi-file work, or adversarial review | Newest available Gemini Flash, High effort |
+| `pro` | Exceptional escalation only | Configured Gemini Pro model |
+
+There is no Low tier. Both Flash tiers query `agy models` and automatically follow the newest available Gemini Flash family. If discovery is unavailable, version 0.28.0 falls back to Gemini 3.8 Flash at the selected effort level. Exact models can still be supplied with `--model` or the plugin configuration overrides.
 
 ## Usage
 
-Claude Code can use the existing commands:
+Claude Code examples:
 
 ```text
-/antigravity:delegate --tier flash-medium "Implement the tests for this module"
+/antigravity:delegate --tier flash-medium "Add the missing unit tests"
+/antigravity:delegate --tier flash "Diagnose this cross-module concurrency bug"
 /antigravity:review
-/antigravity:research "Research this topic and include sources"
+/antigravity:research "Research this topic and include source URLs"
 ```
 
-Codex uses the corresponding `antigravity` MCP tools directly. The thin MCP adapter invokes the same wrappers and returns their stdout, stderr, and exact exit code.
+Codex uses the corresponding `antigravity` MCP tools directly. The MCP adapter calls the same wrappers and returns their stdout, stderr, and exact exit code.
 
-Choose `flash-medium` for simple, routine, mechanical, or bounded work. Choose `flash`
-for High effort on complex reasoning, architecture, concurrency/security, ambiguous
-multi-file behavior, difficult debugging, adversarial review, or a materially incomplete
-Medium result. Both tiers query `agy models` and select the newest available Gemini Flash
-family automatically (currently 3.8); `pro` remains an exceptional escalation.
-
-The wrappers remain available from Git Bash:
+The wrappers are also available from Git Bash:
 
 ```text
-agy-delegate --tier flash-medium --dir "C:\path\to\repo" --digest "Inspect the project"
-agy-scout --dir "C:\path\to\repo" "Trace the request flow"
-agy-review --dir "C:\path\to\repo" --staged --goal "Implement feature X"
+agy-delegate --tier flash-medium --dir "C:\path\to\repo" --digest "Implement this bounded change"
+agy-scout --tier flash-medium --dir "C:\path\to\repo" "Trace the request flow"
+agy-review --tier flash --dir "C:\path\to\repo" --staged --goal "Implement feature X"
+agy-job start --tier flash --dir "C:\path\to\repo" "Complete this long-running task"
 ```
 
-For write-capable tasks, use a trusted branch and grant only the permissions you intend. `--yolo` grants broad access to files, commands, network, and process-visible credentials; its behavior is unchanged and it is not enabled by default.
+Routine calls default to 30 minutes. The Codex MCP transport allows 35 minutes so a healthy long-running worker can return before the transport closes. Use `--timeout` when a task needs a different wrapper deadline.
 
-If something fails, run `/antigravity:setup`, the Codex `doctor` MCP tool, or `agy-doctor`, then see [troubleshooting](docs/TROUBLESHOOTING.md).
+## Permissions and troubleshooting
+
+Write-capable tasks should run on a trusted branch with only the permissions you intend to grant. `--yolo` broadly exposes files, commands, network access, and process-visible credentials to the worker; it remains explicit unless enabled in plugin or environment settings.
+
+If a call fails, run `/antigravity:setup` in Claude Code, the `doctor` MCP tool in Codex, or `agy-doctor` from Git Bash. More diagnostics are in [Troubleshooting](docs/TROUBLESHOOTING.md).
 
 ## License
 
-[MIT](LICENSE). Third-party attributions are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). This is a community project and is not affiliated with Google, Anthropic, or OpenAI.
+[MIT](LICENSE). Third-party notices are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). This is a community project and is not affiliated with Google, Anthropic, or OpenAI.
