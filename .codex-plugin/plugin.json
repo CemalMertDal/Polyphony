@@ -1,6 +1,6 @@
 {
   "name": "antigravity",
-  "version": "0.27.2",
+  "version": "0.28.0",
   "description": "Delegate focused work from Codex to Antigravity CLI workers through the existing tested wrappers.",
   "author": {
     "name": "GryAsl",

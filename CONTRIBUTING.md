@@ -30,7 +30,7 @@ claude --plugin-dir ~/antigravity-for-claude-code
 The scripts also run standalone — handy for quick iteration:
 
 ```bash
-scripts/agy-delegate.sh --tier flash "Summarize this in 3 bullets: ..."
+scripts/agy-delegate.sh --tier flash-medium "Summarize this in 3 bullets: ..."
 ```
 
 ## Before you open a PR

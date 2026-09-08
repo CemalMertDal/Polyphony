@@ -1,6 +1,6 @@
 ---
 description: Delegate a well-scoped subtask to Antigravity (agy/Gemini) under cost discipline, then verify.
-argument-hint: "[--tier flash|pro] <task>"
+argument-hint: "[--tier flash-medium|flash|pro] <task>"
 ---
 
 Delegate the following task to Antigravity (`agy` / Gemini) via the plugin wrapper,
@@ -9,7 +9,11 @@ following the `antigravity` skill's **Cost discipline** and **Verification gates
 Task: $ARGUMENTS
 
 Do this:
-1. Pick a tier (`flash` default; `pro` for hard reasoning). If the task needs the repo,
+1. Deliberately pick `flash-medium` for simple/routine/mechanical work or `flash`
+   (High) for complex reasoning, architecture, concurrency/security, ambiguous
+   multi-file behavior, difficult debugging, adversarial review, or a materially
+   incomplete Medium result. Both track the newest Gemini Flash family. Reserve
+   `pro` for exceptional escalation. If the task needs the repo,
    add `--dir <repo-root>` so agy reads the real files (don't paste them into context).
    **If the task WRITES files or uses tools** (web / Vertex AI Search / terminal), it needs
    a grant. For a plain file write the narrower one is a `write_file(<dir>)` entry under

@@ -34,14 +34,14 @@ def _object(properties: dict[str, Any], required: list[str] | None = None) -> di
     return schema
 
 
-TIER = {"type": "string", "enum": ["flash", "flash-lo", "pro"]}
+TIER = {"type": "string", "enum": ["flash-medium", "flash", "pro"]}
 DURATION = {"type": "string", "description": "Wrapper duration such as 5m or 300s."}
 DIRECTORY = {"type": "string", "description": "Repository/workspace directory."}
 
 TOOLS = [
     {
         "name": "delegate",
-        "description": "Run a focused Agy worker through agy-delegate with unchanged tier, permission, timeout, digest, and exit-code behavior.",
+        "description": "Run an Agy worker. Choose flash-medium for routine work or flash (High) for complex work; both track the newest Flash family.",
         "inputSchema": _object(
             {
                 "prompt": {"type": "string"},
@@ -63,9 +63,9 @@ TOOLS = [
     },
     {
         "name": "scout",
-        "description": "Run the compact read-only Gemini Flash repository scout.",
+        "description": "Run a compact read-only Gemini Flash scout (Medium by default; High is selectable).",
         "inputSchema": _object(
-            {"question": {"type": "string"}, "directory": DIRECTORY, "timeout": DURATION},
+            {"question": {"type": "string"}, "directory": DIRECTORY, "tier": {"type": "string", "enum": ["flash-medium", "flash"]}, "timeout": DURATION},
             ["question"],
         ),
     },
@@ -83,7 +83,7 @@ TOOLS = [
                 "range": {"type": "string"},
                 "paths": {"type": "array", "items": {"type": "string"}},
                 "adversarial": {"type": "boolean"},
-                "tier": {"type": "string", "enum": ["flash", "pro"]},
+                "tier": TIER,
                 "timeout": DURATION,
             },
             ["goal"],
@@ -313,6 +313,7 @@ def _dispatch(name: str, args: dict) -> dict:
 
     if name == "scout":
         argv = ["--dir", str(args.get("directory") or os.getcwd())]
+        _flag(argv, args, "tier", "--tier")
         _flag(argv, args, "timeout", "--timeout")
         argv.append(str(args.get("question") or ""))
         return _run_shell("agy-scout.sh", argv, _cwd(args))
@@ -461,7 +462,7 @@ def handle_request(req: dict) -> dict | None:
             "result": {
                 "protocolVersion": requested or PROTOCOL_VERSION,
                 "capabilities": {"tools": {"listChanged": False}},
-                "serverInfo": {"name": "antigravity-wrappers", "version": "0.27.2"},
+                "serverInfo": {"name": "antigravity-wrappers", "version": "0.28.0"},
             },
         }
     if method == "notifications/initialized":

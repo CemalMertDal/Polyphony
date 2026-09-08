@@ -39,7 +39,7 @@ REMINDERS = {
     ),
     "implementation": (
         "dosya veya kod değişikliği yapıyorsun",
-        "sınırları ve kabul ölçütleri belirlenmiş `agy-delegate --tier flash` worker'ı",
+        "işin karmaşıklığına göre `--tier flash-medium` veya `--tier flash` seçilmiş, sınırları ve kabul ölçütleri belirlenmiş `agy-delegate` worker'ı",
     ),
     "review": (
         "diff, değişiklik veya kod incelemesi yapıyorsun",

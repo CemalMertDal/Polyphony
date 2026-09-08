@@ -1,6 +1,6 @@
 {
   "name": "antigravity",
-  "version": "0.27.2",
+  "version": "0.28.0",
   "description": "Run the Antigravity CLI (Gemini) as a collaborating worker from Claude Code and Codex, including native Windows ConPTY support.",
   "author": {
     "name": "GryAsl"
@@ -27,8 +27,8 @@
     "default_tier": {
       "type": "string",
       "title": "Default Antigravity tier",
-      "description": "Tier used by agy-delegate.sh when --tier is not passed. One of: flash (Gemini 3.7 Flash High, default — bulk work), flash-lo (Flash Low, cheapest/trivial), pro (Gemini 3.1 Pro High, harder reasoning).",
-      "default": "flash"
+      "description": "Tier used when --tier is omitted: flash-medium (latest Gemini Flash Medium, routine default), flash (latest Gemini Flash High, complex work), or pro (exceptional escalation).",
+      "default": "flash-medium"
     },
     "timeout": {
       "type": "string",
@@ -51,7 +51,7 @@
     "coding_policy": {
       "type": "string",
       "title": "Inject routing policy at session start",
-      "description": "When on, SessionStart injects the routing policy: small tasks are eligible, Gemini 3.7 Flash High is the normal executor, prompts stay neutral and scoped, context stays lean, and Claude independently verifies output. Set to off/false/0/no to suppress.",
+      "description": "When on, SessionStart tells Claude to select latest Flash Medium for routine work or latest Flash High for complex work while keeping prompts scoped and context lean. Set to off/false/0/no to suppress.",
       "default": "on"
     },
     "default_model": {
@@ -63,13 +63,13 @@
     "tier_flash": {
       "type": "string",
       "title": "Model for the 'flash' tier",
-      "description": "Override the exact agy model the 'flash' tier maps to (default: Gemini 3.7 Flash (High)). Use a name from `agy models`.",
+      "description": "Override the exact model for the High Flash tier. Empty dynamically selects the newest Gemini Flash (High) from `agy models`, with Gemini 3.8 Flash (High) as the safe fallback.",
       "default": ""
     },
-    "tier_flash_lo": {
+    "tier_flash_medium": {
       "type": "string",
-      "title": "Model for the 'flash-lo' tier",
-      "description": "Override the exact agy model the 'flash-lo' tier maps to (default: Gemini 3.7 Flash (Low)). Use a name from `agy models`.",
+      "title": "Model for the 'flash-medium' tier",
+      "description": "Override the exact model for the Medium Flash tier. Empty dynamically selects the newest Gemini Flash (Medium) from `agy models`, with Gemini 3.8 Flash (Medium) as the safe fallback.",
       "default": ""
     },
     "tier_pro": {

@@ -3,6 +3,15 @@
 All notable changes to **Antigravity for Claude Code and Codex**. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions are in `.claude-plugin/plugin.json`.
 
+## 0.28.0 — Adaptive latest-Flash effort routing
+
+- Replaced the removed Low tier with `flash-medium`; routine work now defaults to
+  Medium while callers deliberately select `flash` (High) for complex or risky work.
+- Both Flash tiers now resolve the newest matching Gemini Flash model from `agy models`,
+  with Gemini 3.8 Medium/High as safe fallbacks when discovery is unavailable.
+- Updated Claude policy, Codex MCP schemas, wrappers, skills, commands, doctor, and docs
+  so no surface silently routes every Flash task to High.
+
 ## 0.27.2 — Codex timeout headroom
 
 - Raised the Codex MCP transport ceiling to 35 minutes, leaving five minutes of

@@ -12,9 +12,11 @@ description: |
   reading happen on Gemini and do NOT spend Claude tokens. It returns agy's
   DIGEST for the caller to verify — it does not itself ship or claim success.
 
-  Use `--tier flash` (Gemini 3.7 Flash High) explicitly by default. Reserve
-  `--tier pro` for exceptionally large and reasoning-heavy work, or one materially
-  incomplete Flash result. Claude remains responsible for judgement-heavy decisions.
+  Deliberately select the effort tier: use `--tier flash-medium` for simple,
+  routine, mechanical, or bounded work; use `--tier flash` (High) for complex
+  reasoning, architecture, concurrency/security, ambiguous multi-file behavior,
+  difficult debugging, adversarial review, or one materially incomplete Medium
+  result. Both track the newest Gemini Flash family. Reserve `pro` for exceptional escalation.
 
   <example>
   Context: Claude has written a spec and now needs a large, repetitive build.
@@ -63,7 +65,7 @@ cannot write files even via the shell. Never reconstruct file contents in your r
 agy-delegate [options] "<task>"
 ```
 
-Options: `--tier flash|flash-lo|pro` · `--dir <repo-root>` (so agy reads
+Options: `--tier flash-medium|flash|pro` · `--dir <repo-root>` (so agy reads
 `AGENTS.md` + the real files — always prefer this over pasting code) · `--yolo`
 (required for any tool use or file writing in headless mode — a grant over the machine,
 not over `--dir`) · `--sandbox` (does NOT contain anything; measured inert under
@@ -87,7 +89,8 @@ not over `--dir`) · `--sandbox` (does NOT contain anything; measured inert unde
 
 ## Strict delegation contract
 
-- Explicitly pass `--tier flash` unless the caller justified `pro` under the rule above.
+- Explicitly pass `--tier flash-medium` or `--tier flash` after judging task complexity;
+  never send every task to High by habit. Use `pro` only for exceptional escalation.
 - Write a neutral prompt: objective, exact scope, relevant paths, constraints,
   acceptance criteria, permitted actions, and required evidence. Do not tell Gemini
   which conclusion Claude prefers; require it to disagree when evidence warrants it.

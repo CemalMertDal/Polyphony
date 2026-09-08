@@ -51,7 +51,7 @@ Then run `agy-doctor` or `/antigravity:setup`.
 | `No module named winpty` / ConPTY backend failure | `py -3 -m pip install -U --force-reinstall pywinpty` |
 | `agy` not found (exit 13) | put `agy.exe` on PATH or set `AGY_PATH` to its full path |
 | auth required (exit 11) | run `agy` once in a real terminal and finish sign-in |
-| model unavailable (exit 14) | check models interactively and remap `tier_flash`, `tier_flash_lo`, or `tier_pro` |
+| model unavailable (exit 14) | check models interactively and remap `tier_flash_medium`, `tier_flash`, or `tier_pro` |
 | idle/hard timeout (exit 12) | one idle result is not proof of lost connectivity; run a short `/model` or one-file probe, then narrow/split the task or raise `--timeout` / `--idle-timeout` |
 
 `AGY_BRIDGE_PYTHON` must be an executable path, not a shell command string. The default
@@ -198,8 +198,8 @@ On classifiable failures the wrapper prints a machine-readable line to stderr:
 **Cause:** agy's model list is plan-dependent (Vertex plans are Gemini-only; some plans
 expose Claude/GPT). The default tier mappings may not match your plan.
 
-**Fix:** remap tiers to models you actually have — plugin options `tier_flash` /
-`tier_flash_lo` / `tier_pro` or `default_model` (exact names from `agy models`), or pass
+**Fix:** remap tiers to models you actually have — plugin options `tier_flash_medium` /
+`tier_flash` / `tier_pro` or `default_model` (exact names from `agy models`), or pass
 `--model "<exact name>"` per call.
 
 ---

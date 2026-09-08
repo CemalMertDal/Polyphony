@@ -13,7 +13,9 @@ Do this:
 1. Run `agy-review --dir <repo-root> $ARGUMENTS`. Default scope is all staged and
    unstaged tracked changes relative to `HEAD`; use `--staged` for the final pre-commit
    review. Include a short `--goal` describing the original contract when it is not
-   already present in `$ARGUMENTS`.
+   already present in `$ARGUMENTS`. Ordinary review defaults to `flash-medium`; use
+   `--tier flash` for complex/risky review. `--adversarial` selects High automatically
+   unless the caller explicitly chooses a tier.
 2. Read only its verdict, findings, test gaps, and proposed Conventional Commit subject.
    Never run `git diff` merely to duplicate this review. Untracked contents are excluded,
    so stage task-owned new files before the final review.

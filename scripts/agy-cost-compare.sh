@@ -15,7 +15,7 @@
 #     project before quoting numbers to anyone. Per 1M tokens, in USD.
 #
 # Usage:
-#   agy-cost-compare.sh [-t flash|flash-lo|pro] "the task prompt"
+#   agy-cost-compare.sh [-t flash-medium|flash|pro] "the task prompt"
 #
 # Env overrides (USD per 1M tokens):
 #   CLAUDE_IN_PER_M  CLAUDE_OUT_PER_M     (default: 5 / 25   -- VERIFY!)
@@ -27,12 +27,12 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-TIER="flash"
+TIER="flash-medium"
 
 YOLO=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    -t|--tier) TIER="${2:-flash}"; shift 2 ;;
+    -t|--tier) TIER="${2:-flash-medium}"; shift 2 ;;
     --yolo)    YOLO="--yolo"; shift ;;   # needed if the task uses tools (web/Vertex search)
     --)        shift; break ;;
     -*)        echo "unknown option: $1" >&2; exit 1 ;;
@@ -41,6 +41,7 @@ while [ $# -gt 0 ]; do
 done
 PROMPT="${*:-}"
 [ -n "$PROMPT" ] || { echo "usage: agy-cost-compare.sh [-t tier] [--yolo] \"task\"" >&2; exit 1; }
+case "$TIER" in flash-medium|flash|pro) ;; *) echo "tier must be flash-medium, flash, or pro" >&2; exit 1 ;; esac
 
 # Default prices from prices.json (env vars still override); Gemini rate by tier.
 PRICES="$HERE/../prices.json"

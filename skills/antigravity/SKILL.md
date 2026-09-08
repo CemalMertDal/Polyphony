@@ -1,7 +1,7 @@
 ---
 name: antigravity
 description: Run the Antigravity CLI (Gemini) as a collaborating AI inside Claude Code, with intelligent model routing across the software development lifecycle. Claude is the conductor/orchestrator — requirements, architecture, the hard 20%, verification, and review — and routes deterministic, high-volume work (scaffolding, boilerplate, test generation, first-pass review, migrations, web/Vertex AI Search) to Antigravity (Gemini), the cheaper, faster model. Use when the user wants to "use Antigravity / agy", "vibe code / agentic engineering", "accelerate the SDLC", "delegate to Gemini", "scaffold / generate tests / migrate", "first-pass code review", "search web or internal/company data", "deep research / multi-source research report", "second-model cross-check", or "lower token cost on a big job". Claude always verifies Antigravity's output and re-checks itself if unsatisfied.
-version: 0.27.2
+version: 0.28.0
 ---
 
 # Antigravity for Claude Code — hybrid SDLC
@@ -47,8 +47,10 @@ Route each phase to the right model. This is the core policy.
 | Audio / video understanding | **agy** transcribes + digests · **Claude** verifies | Gemini is natively multimodal; no local ffmpeg/speech stack |
 | Deep research (multi-source) | **agy** fans out search/fetch · **Claude** plans, verifies ≥2 sources, synthesizes | offload bulky pages to cheap Gemini; frontier model judges |
 
-Routing tier within agy: `flash` (default, bulk) · `flash-lo` (cheapest, trivial) ·
-`pro` (harder reasoning / reviews / cross-checks).
+Routing tier within agy: `flash-medium` (routine default) · `flash` (High for
+complex/risky work) · `pro` (exceptional escalation). The main agent must choose
+Medium or High deliberately; both Flash tiers dynamically track the newest available
+Gemini Flash family.
 
 **agy is multi-model.** Tiers map to Gemini by default, but you can point delegation at any
 model `agy models` lists (Claude / GPT on plans that expose them) — via `--model <exact name>`,
@@ -67,7 +69,8 @@ the cross-model verification value (Claude executing Claude loses both).
 > it would actually run. Below 1.1.11 it does not probe, because there the slash command
 > falls through as prompt text and the model answers as though it had run.
 >
-> The `flash` tiers default to **Gemini 3.7 Flash (High)** / **(Low)** since 0.24.0.
+> The Flash tiers dynamically select the newest matching **Gemini Flash (Medium)** or
+> **(High)** exposed by `agy models`; the safe offline fallback is Gemini 3.8 Flash.
 > 3.6 and 3.7 are priced identically and undercut 3.5 on every axis today: input
 > and cached-input are exactly half ($1.50 -> $0.75, $0.15 -> $0.075) and output
 > is cheaper still, $9.00 -> $3.75 — a 58% cut, not a halving. Under a
@@ -77,8 +80,8 @@ the cross-model verification value (Claude executing Claude loses both).
 >
 > **The move is justified on price and currency, not on quality** — no comparison
 > has been run between these models on a build where `--model` actually applies.
-> If a plan does not serve 3.7, `doctor` says so and a delegation exits 14 naming
-> the fix; remap `tier_flash` to a name from `agy models` (3.6 costs the same).
+> If discovery fails, the stable fallback is used; `doctor` reports unavailable tier
+> models and exact overrides remain available through `tier_flash*` options.
 >
 > **Retracted:** earlier versions of this note quoted token-level comparisons between
 > 3.5 / 3.6 / `flash-medium` (−23% input, `cache_read` +43%, and so on). Those runs were
@@ -97,7 +100,7 @@ the cross-model verification value (Claude executing Claude loses both).
 ```bash
 agy-delegate [options] "the task prompt"
 ```
-Options: `--tier flash|flash-lo|pro` · `--dir <path>` (workspace, repeatable) ·
+Options: `--tier flash-medium|flash|pro` · `--dir <path>` (workspace, repeatable) ·
 `--timeout 10m` · `--idle-timeout 600` (optional native-Windows no-output ceiling;
 normally derived just above the hard timeout) · `--yolo` (auto-approve **ALL** tools — the blunt grant; needed for web /
 Vertex AI Search / terminal, and for writes not covered by a `permissions.allow` rule. For a
@@ -351,7 +354,7 @@ ROOT=agy-delegate
   "Scaffold per ARCHITECTURE.md: dirs, configs, stub modules. Follow AGENTS.md."
 
 # Generate tests for a contract Claude defined
-"$ROOT" --tier flash --yolo --dir ./app \
+"$ROOT" --tier flash-medium --yolo --dir ./app \
   "Write unit + edge-case tests for src/payments.py covering the cases in SPEC.md."
 
 # Lean first-pass review (raw diff goes directly to Flash, not Claude)
@@ -463,7 +466,7 @@ unverified.**
 2. **Fan-out fetch (agy, cheap, parallel).** One call per sub-question; force compact
    stdout so bulky pages stay in Gemini's context, not Claude's:
    ```bash
-   "$ROOT" --tier flash --yolo \
+   "$ROOT" --tier flash-medium --yolo \
      "Use web search for <sub-question>. Return 5-8 bullet findings, each with the
       exact source URL and publication date. Output ONLY findings+URLs+dates."
    ```
@@ -502,7 +505,7 @@ Routing deterministic, high-volume work to Gemini Flash (≪ Claude per token) i
 **intelligent model routing**: higher CapEx (this harness) for lower OpEx (cheap model
 does the bulk). Use the cost demo as observability:
 ```bash
-agy-cost-compare --tier flash "the task prompt"
+agy-cost-compare --tier flash-medium "the task prompt"
 ```
 Estimates only (chars/4; agy exposes no token API in print mode). Set real Vertex rates
 via `CLAUDE_IN_PER_M`, `CLAUDE_OUT_PER_M`, `GEMINI_IN_PER_M`, `GEMINI_OUT_PER_M`.

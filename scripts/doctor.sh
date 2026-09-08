@@ -13,7 +13,7 @@ info() { printf '    %s\n' "$*"; }
 FAIL=0
 
 # Normalize a model id to lowercase alphanumerics only, so a configured display name
-# ("Gemini 3.7 Flash (High)") and an `agy models` entry survive comparison regardless of
+# ("Gemini 3.8 Flash (High)") and an `agy models` entry survive comparison regardless of
 # format. agy 1.1.5 switched `agy models` output from display names to slugs
 # (`gemini-3.5-flash`), which broke a strict grep and made doctor falsely warn that every
 # tier model was missing (they still worked). Both forms normalize to a comparable core.
@@ -57,8 +57,8 @@ agy_guard() { # usage: agy_guard <secs> <agy-args...>
         return 0 ;;
       models)
         for model in \
-          "${CLAUDE_PLUGIN_OPTION_TIER_FLASH:-Gemini 3.7 Flash (High)}" \
-          "${CLAUDE_PLUGIN_OPTION_TIER_FLASH_LO:-Gemini 3.7 Flash (Low)}" \
+          "$(resolved_flash_model medium)" \
+          "$(resolved_flash_model high)" \
           "${CLAUDE_PLUGIN_OPTION_TIER_PRO:-Gemini 3.1 Pro (High)}"; do
           out="$("$HERE/agy-delegate.sh" --model "$model" --timeout "${secs}s" "/model" 2>/dev/null)"; rc=$?
           if [ "$rc" -eq 0 ] && [ -n "$out" ]; then printf '%s\n' "$out"; any=0; fi
@@ -239,7 +239,7 @@ allow_rules() {
   if on_windows_native; then
     local resolved
     resolved="$("$HERE/agy-delegate.sh" \
-      --model "${CLAUDE_PLUGIN_OPTION_TIER_FLASH:-Gemini 3.7 Flash (High)}" \
+      --model "$(resolved_flash_model high)" \
       --timeout 30s "/permissions" 2>/dev/null)"
     if [ -n "$resolved" ]; then
       printf '%s\n' "$resolved" | awk -F'\t' '$2 == "allow" && $3 != "" { print $3 }'
@@ -328,10 +328,29 @@ resolve_bridge_python() {
   if command -v py >/dev/null 2>&1 && py -3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)' >/dev/null 2>&1; then
     BRIDGE_PY=(py -3); return 0
   fi
+  if command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)' >/dev/null 2>&1; then
+    BRIDGE_PY=(python3); return 0
+  fi
   if command -v python >/dev/null 2>&1 && python -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)' >/dev/null 2>&1; then
     BRIDGE_PY=(python); return 0
   fi
   return 1
+}
+
+resolved_flash_model() { # $1 = medium|high
+  local effort="$1" configured="" fallback resolved=""
+  if [ "$effort" = medium ]; then
+    configured="${CLAUDE_PLUGIN_OPTION_TIER_FLASH_MEDIUM:-}"
+    fallback="Gemini 3.8 Flash (Medium)"
+  else
+    configured="${CLAUDE_PLUGIN_OPTION_TIER_FLASH:-}"
+    fallback="Gemini 3.8 Flash (High)"
+  fi
+  [ -z "$configured" ] || { printf '%s\n' "$configured"; return 0; }
+  if resolve_bridge_python; then
+    resolved="$("${BRIDGE_PY[@]}" "$HERE/resolve-flash-model.py" --effort "$effort" --fallback "$fallback" 2>/dev/null || true)"
+  fi
+  [ -n "$resolved" ] && printf '%s\n' "$resolved" || printf '%s\n' "$fallback"
 }
 
 agy_available() {
@@ -433,10 +452,10 @@ if agy_available; then
     ok "agy authenticated — $(printf '%s' "$MODELS" | grep -c . ) models available"
     # 2b. configured tier->model names exist (respecting userConfig remaps). agy is
     # multi-model and plan-dependent, so a miss is a WARNING, not a failure.
-    FLASH="${CLAUDE_PLUGIN_OPTION_TIER_FLASH:-Gemini 3.7 Flash (High)}"
-    FLASH_LO="${CLAUDE_PLUGIN_OPTION_TIER_FLASH_LO:-Gemini 3.7 Flash (Low)}"
+    FLASH_MEDIUM="$(resolved_flash_model medium)"
+    FLASH="$(resolved_flash_model high)"
     PRO="${CLAUDE_PLUGIN_OPTION_TIER_PRO:-Gemini 3.1 Pro (High)}"
-    for m in "$FLASH" "$FLASH_LO" "$PRO"; do
+    for m in "$FLASH_MEDIUM" "$FLASH" "$PRO"; do
       if model_present "$m"; then
         ok "tier model present: $m"
       else

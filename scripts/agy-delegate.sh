@@ -13,14 +13,14 @@
 #   * agy v1.0.x has NO `--output-format json`, so callers must parse plain text.
 #     This wrapper guarantees: non-empty stdout on success, non-zero exit on
 #     failure or empty output.
-#   * Human-friendly tier names (flash / pro) instead of exact model strings.
+#   * Human-friendly tiers (flash-medium / flash / pro) instead of exact model strings.
 #
 # Usage:
 #   agy-delegate.sh [options] "the task prompt"
 #   echo "long prompt" | agy-delegate.sh [options] -      # read prompt from stdin
 #
 # Options:
-#   -t, --tier <flash|flash-lo|pro>  Model tier (default: flash)
+#   -t, --tier <flash-medium|flash|pro>  Model tier (default: flash-medium)
 #   -d, --dir  <path>                Add a workspace dir (repeatable)
 #       --timeout <dur>              Print-mode timeout, e.g. 45m (default: 30m)
 #       --idle-timeout <secs>        Native Windows no-output timeout. Default: just
@@ -59,14 +59,14 @@
 # model `agy models` lists (e.g. Claude/GPT on plans that expose them). Defaults via plugin
 # userConfig (env): CLAUDE_PLUGIN_OPTION_DEFAULT_TIER, _TIMEOUT, _IDLE_TIMEOUT,
 # _ALWAYS_YOLO,
-# _DEFAULT_MODEL (exact name), _USAGE_LOG, and per-tier remaps _TIER_FLASH /
-# _TIER_FLASH_LO / _TIER_PRO. Explicit flags win; AGY_BRIDGE_IDLE_TIMEOUT wins
+# _DEFAULT_MODEL (exact name), _USAGE_LOG, and per-tier remaps _TIER_FLASH_MEDIUM /
+# _TIER_FLASH / _TIER_PRO. Explicit flags win; AGY_BRIDGE_IDLE_TIMEOUT wins
 # over _IDLE_TIMEOUT; AGY_USAGE_LOG wins over _USAGE_LOG.
 #
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
-TIER="${CLAUDE_PLUGIN_OPTION_DEFAULT_TIER:-flash}"
+TIER="${CLAUDE_PLUGIN_OPTION_DEFAULT_TIER:-flash-medium}"
 TIMEOUT="${CLAUDE_PLUGIN_OPTION_TIMEOUT:-30m}"
 IDLE_TIMEOUT="${CLAUDE_PLUGIN_OPTION_IDLE_TIMEOUT:-}"
 IDLE_TIMEOUT_EXPLICIT=0
@@ -166,11 +166,30 @@ usage() { sed -n '/^# Usage:/,/^# Exit codes:/p' "$0" | sed 's/^# \{0,1\}//'; ex
 # (env), so non-Vertex/non-Gemini plans (Claude/GPT) work without code changes.
 model_for_tier() {
   case "$1" in
-    flash)    echo "${CLAUDE_PLUGIN_OPTION_TIER_FLASH:-Gemini 3.7 Flash (High)}" ;;
-    flash-lo) echo "${CLAUDE_PLUGIN_OPTION_TIER_FLASH_LO:-Gemini 3.7 Flash (Low)}" ;;
+    flash-medium)
+      if [ -n "${CLAUDE_PLUGIN_OPTION_TIER_FLASH_MEDIUM:-}" ]; then
+        echo "$CLAUDE_PLUGIN_OPTION_TIER_FLASH_MEDIUM"
+      else
+        resolve_flash_model medium "Gemini 3.8 Flash (Medium)"
+      fi ;;
+    flash)
+      if [ -n "${CLAUDE_PLUGIN_OPTION_TIER_FLASH:-}" ]; then
+        echo "$CLAUDE_PLUGIN_OPTION_TIER_FLASH"
+      else
+        resolve_flash_model high "Gemini 3.8 Flash (High)"
+      fi ;;
     pro)      echo "${CLAUDE_PLUGIN_OPTION_TIER_PRO:-Gemini 3.1 Pro (High)}" ;;
-    *) die "unknown tier '$1' (use flash | flash-lo | pro)" ;;
+    *) die "unknown tier '$1' (use flash-medium | flash | pro)" ;;
   esac
+}
+
+resolve_flash_model() { # $1 = medium|high, $2 = stable fallback
+  local effort="$1" fallback="$2" resolved=""
+  if resolve_bridge_python; then
+    resolved="$("${BRIDGE_PY[@]}" "$HERE/resolve-flash-model.py" \
+      --effort "$effort" --fallback "$fallback" 2>/dev/null || true)"
+  fi
+  [ -n "$resolved" ] && printf '%s\n' "$resolved" || printf '%s\n' "$fallback"
 }
 
 # True when running under WSL (Windows Subsystem for Linux).
@@ -296,8 +315,8 @@ if [ -z "$MODEL" ]; then
   else
     # default tier from userConfig; a bad value shouldn't make every call die.
     case "$TIER" in
-      flash|flash-lo|pro) ;;
-      *) echo "agy-delegate: invalid default tier '$TIER' (set CLAUDE_PLUGIN_OPTION_DEFAULT_TIER to flash|flash-lo|pro); using flash" >&2; TIER="flash" ;;
+      flash-medium|flash|pro) ;;
+      *) echo "agy-delegate: invalid default tier '$TIER' (set CLAUDE_PLUGIN_OPTION_DEFAULT_TIER to flash-medium|flash|pro); using flash-medium" >&2; TIER="flash-medium" ;;
     esac
     MODEL="$(model_for_tier "$TIER")"
   fi

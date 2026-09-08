@@ -58,17 +58,23 @@ Start a new Codex task after installation. The plugin exposes direct MCP tools f
 Claude Code can use the existing commands:
 
 ```text
-/antigravity:delegate --tier flash "Implement the tests for this module"
+/antigravity:delegate --tier flash-medium "Implement the tests for this module"
 /antigravity:review
 /antigravity:research "Research this topic and include sources"
 ```
 
 Codex uses the corresponding `antigravity` MCP tools directly. The thin MCP adapter invokes the same wrappers and returns their stdout, stderr, and exact exit code.
 
+Choose `flash-medium` for simple, routine, mechanical, or bounded work. Choose `flash`
+for High effort on complex reasoning, architecture, concurrency/security, ambiguous
+multi-file behavior, difficult debugging, adversarial review, or a materially incomplete
+Medium result. Both tiers query `agy models` and select the newest available Gemini Flash
+family automatically (currently 3.8); `pro` remains an exceptional escalation.
+
 The wrappers remain available from Git Bash:
 
 ```text
-agy-delegate --tier flash --dir "C:\path\to\repo" --digest "Inspect the project"
+agy-delegate --tier flash-medium --dir "C:\path\to\repo" --digest "Inspect the project"
 agy-scout --dir "C:\path\to\repo" "Trace the request flow"
 agy-review --dir "C:\path\to\repo" --staged --goal "Implement feature X"
 ```

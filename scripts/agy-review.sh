@@ -11,7 +11,8 @@ GOAL="Review the selected changes for correctness and unintended behavior."
 SCOPE="worktree"
 SCOPE_SET=0
 RANGE=""
-TIER="flash"
+TIER="flash-medium"
+TIER_EXPLICIT=0
 TIMEOUT="30m"
 ADVERSARIAL=0
 PATHS=()
@@ -31,7 +32,7 @@ Usage: agy-review [options] [goal]
   --range <A..B>        Explicit Git revision/range
   --path <pathspec>     Limit scope; repeatable
   --adversarial         Also challenge design and tradeoffs
-  --tier <flash|pro>    Reviewer tier (default: flash)
+  --tier <flash-medium|flash|pro>  Tier (default: Medium; adversarial defaults High)
   --timeout <duration>  Delegation timeout (default: 30m)
 
 The raw diff is sent only to agy. Untracked file contents are deliberately excluded;
@@ -57,7 +58,7 @@ while [ "$#" -gt 0 ]; do
     --range)       need "$@"; set_scope "range"; RANGE="$2"; shift 2 ;;
     --path)        need "$@"; PATHS+=("$2"); shift 2 ;;
     --adversarial) ADVERSARIAL=1; shift ;;
-    --tier)        need "$@"; TIER="$2"; shift 2 ;;
+    --tier)        need "$@"; TIER="$2"; TIER_EXPLICIT=1; shift 2 ;;
     --timeout)     need "$@"; TIMEOUT="$2"; shift 2 ;;
     -h|--help)     usage; exit 0 ;;
     --*)           die "unknown option: $1" ;;
@@ -65,7 +66,8 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-case "$TIER" in flash|pro) ;; *) die "--tier must be flash or pro" ;; esac
+case "$TIER" in flash-medium|flash|pro) ;; *) die "--tier must be flash-medium, flash, or pro" ;; esac
+[ "$ADVERSARIAL" -eq 0 ] || [ "$TIER_EXPLICIT" -eq 1 ] || TIER="flash"
 case "$MAX_BYTES" in ''|*[!0-9]*) die "AGY_REVIEW_MAX_BYTES must be an integer" ;; esac
 case "$CHUNK_BYTES" in ''|*[!0-9]*) die "AGY_REVIEW_CHUNK_BYTES must be an integer" ;; esac
 case "$PART_OUTPUT" in ''|*[!0-9]*) die "AGY_REVIEW_PART_OUTPUT_BYTES must be an integer" ;; esac

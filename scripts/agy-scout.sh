@@ -7,15 +7,17 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 DELEGATE="${AGY_DELEGATE:-$HERE/agy-delegate.sh}"
 DIR="."
 TIMEOUT="30m"
+TIER="flash-medium"
 QUESTION=""
 MAX_OUTPUT="${AGY_SCOUT_MAX_OUTPUT_CHARS:-8000}"
 
 usage() {
   cat <<'EOF'
-Usage: agy-scout --dir <repo> [--timeout 30m] "question"
+Usage: agy-scout --dir <repo> [--tier flash-medium|flash] [--timeout 30m] "question"
 
-Runs one read-only Gemini 3.7 Flash planning scout and returns only a compact,
-evidence-based digest. It never passes --yolo.
+Runs one read-only latest-Gemini-Flash planning scout and returns only a compact,
+evidence-based digest. Medium is the routine default; use High (`flash`) for a
+genuinely complex mechanism. It never passes --yolo.
 EOF
 }
 die() { echo "agy-scout: $*" >&2; exit 2; }
@@ -24,6 +26,7 @@ need() { [ "$#" -ge 2 ] && [ -n "$2" ] || die "$1 requires a value"; }
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --dir)     need "$@"; DIR="$2"; shift 2 ;;
+    --tier)    need "$@"; TIER="$2"; shift 2 ;;
     --timeout) need "$@"; TIMEOUT="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     --*)       die "unknown option: $1" ;;
@@ -32,6 +35,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 [ -n "$QUESTION" ] || die "a question is required"
+case "$TIER" in flash-medium|flash) ;; *) die "--tier must be flash-medium or flash" ;; esac
 [ -d "$DIR" ] || die "directory not found: $DIR"
 [ -x "$DELEGATE" ] || die "delegation wrapper is not executable: $DELEGATE"
 case "$MAX_OUTPUT" in ''|*[!0-9]*) die "AGY_SCOUT_MAX_OUTPUT_CHARS must be an integer" ;; esac
@@ -49,7 +53,7 @@ DIGEST: one-sentence answer
 Use at most eight short bullets total and plain path:line references (no Markdown links).
 Do not paste full methods, files, raw logs, or propose a patch unless the question explicitly asks for design options."
 
-OUT="$(AGY_DELEGATE_READ_ONLY=1 "$DELEGATE" --tier flash --mode plan --digest --timeout "$TIMEOUT" --dir "$DIR" "$PROMPT")"
+OUT="$(AGY_DELEGATE_READ_ONLY=1 "$DELEGATE" --tier "$TIER" --mode plan --digest --timeout "$TIMEOUT" --dir "$DIR" "$PROMPT")"
 RC=$?
 [ "$RC" -eq 0 ] || { echo "agy-scout: delegation failed (exit $RC)" >&2; exit "$RC"; }
 

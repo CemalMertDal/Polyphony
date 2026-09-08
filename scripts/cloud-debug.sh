@@ -29,7 +29,7 @@
 #       --severity <SEV>         Minimum severity (default: ERROR)
 #       --resource-type <type>    GCP resource.type (default: cloud_run_revision)
 #   -p, --project <id>           GCP project (default: gcloud config's project)
-#   -t, --tier <flash|flash-lo|pro>  agy tier for the digest (default: flash)
+#   -t, --tier <flash-medium|flash|pro>  agy tier (default: flash-medium)
 #       --print-command          Print the resolved gcloud + agy commands and exit (dry run)
 #   -h, --help                   Show this help
 #
@@ -57,7 +57,7 @@ LIMIT="200"
 SEVERITY="ERROR"
 RESOURCE_TYPE="cloud_run_revision"
 PROJECT=""
-TIER="flash"
+TIER="flash-medium"
 PRINT_CMD=0
 
 die() { echo "cloud-debug: $*" >&2; exit 1; }
@@ -88,6 +88,7 @@ while [ $# -gt 0 ]; do
 done
 
 [ -n "$SERVICE" ] || die "no --service given (the Cloud Run service to diagnose)"
+case "$TIER" in flash-medium|flash|pro) ;; *) die "--tier must be flash-medium, flash, or pro" ;; esac
 case "$LIMIT" in (*[!0-9]*|'') die "--limit must be a positive integer (got '$LIMIT')" ;; esac
 
 # gcloud is required for the real run; --print-command is a dry run (introspection)

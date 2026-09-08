@@ -1,6 +1,6 @@
 ---
 description: Understand an audio / video / image file — Antigravity (agy/Gemini) transcribes and analyzes it, returning a timestamped digest while the full transcript goes to a file.
-argument-hint: "<file> [what to focus on] [--convert] [--tier pro|flash] [--timeout 20m]"
+argument-hint: "<file> [what to focus on] [--convert] [--tier flash-medium|flash|pro] [--timeout 20m]"
 ---
 
 Claude Code can't hear audio or watch video, and doing it locally means an ffmpeg +
@@ -17,9 +17,9 @@ Do this:
 2. **Delegate** (the engine handles format pre-flight, the digest contract, and writes the
    full transcript to a file):
    ```
-   agy-media <file> [focus] [--convert] [--tier pro|flash] [--timeout 20m] [--out <path>]
+   agy-media <file> [focus] [--convert] [--tier flash-medium|flash|pro] [--timeout 20m] [--out <path>]
    ```
-   - Default tier is `pro` (better timestamps/diarization); `--tier flash` is fine for
+   - Default tier is `pro` (better timestamps/diarization); `--tier flash-medium` is fine for
      short/simple clips.
    - Long media needs headroom: raise `--timeout` (e.g. `20m`) for anything over a few
      minutes. If it still times out (exit 12), split the file into ~30-min chunks and run

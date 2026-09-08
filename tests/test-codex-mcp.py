@@ -111,7 +111,7 @@ class McpAdapterTests(unittest.TestCase):
                 "prompt": "do it",
                 "directory": str(ROOT),
                 "add_dirs": [str(ROOT / "tests")],
-                "tier": "flash-lo",
+                "tier": "flash-medium",
                 "model": "Exact Model",
                 "timeout": "7m",
                 "idle_timeout": 430,
@@ -124,12 +124,26 @@ class McpAdapterTests(unittest.TestCase):
         )
         argv = self.calls[-1][0]
         for expected in (
-            "--tier", "flash-lo", "--model", "Exact Model", "--timeout", "7m",
+            "--tier", "flash-medium", "--model", "Exact Model", "--timeout", "7m",
             "--idle-timeout", "430", "--yolo", "--sandbox", "--digest",
             "--mode", "accept-edits", "--conversation", "abc", "do it",
         ):
             self.assertIn(expected, argv)
         self.assertEqual(argv.count("--dir"), 2)
+
+    def test_only_medium_high_and_pro_tiers_are_exposed(self):
+        self.assertEqual(mcp.TIER["enum"], ["flash-medium", "flash", "pro"])
+        scout = next(tool for tool in mcp.TOOLS if tool["name"] == "scout")
+        self.assertEqual(
+            scout["inputSchema"]["properties"]["tier"]["enum"],
+            ["flash-medium", "flash"],
+        )
+        self.assertNotIn("flash-lo", json.dumps(mcp.TOOLS))
+
+    def test_scout_forwards_an_explicit_effort_tier(self):
+        mcp._dispatch("scout", {"question": "q", "tier": "flash"})
+        self.assertIn("--tier", self.calls[-1][0])
+        self.assertIn("flash", self.calls[-1][0])
 
     def test_exit_code_stdout_and_stderr_are_preserved(self):
         def failed(argv, **kwargs):

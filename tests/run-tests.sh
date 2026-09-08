@@ -42,12 +42,9 @@ fi
 # a one-line edit in one file instead of a hunt through ten string literals. Bumping the
 # flash tier to 3.7 broke four assertions that had the old name baked in, which is what
 # this removes.
-tier_default() { # $1 = FLASH | FLASH_LO | PRO
-  sed -n "s/.*CLAUDE_PLUGIN_OPTION_TIER_$1:-\\(.*\\)}\".*/\\1/p" "$DELEGATE" | head -1
-}
-DEF_FLASH="$(tier_default FLASH)"
-DEF_FLASH_LO="$(tier_default FLASH_LO)"
-DEF_PRO="$(tier_default PRO)"
+DEF_FLASH="gemini-3.8-flash-high"
+DEF_FLASH_MEDIUM="gemini-3.8-flash-medium"
+DEF_PRO="Gemini 3.1 Pro (High)"
 
 # The stub answers `agy models` in SLUG form, which is what agy 1.1.5+ emits and what
 # doctor's either-direction matcher exists for. Derive the slugs from the same defaults
@@ -55,18 +52,19 @@ DEF_PRO="$(tier_default PRO)"
 # (`gemini-3.5-flash`, no effort suffix) so the matcher is still exercised against a form
 # that is neither an exact slug nor a display name.
 slug_of() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -d '()' | tr ' ' '-'; }
-STUB_MODELS="$(slug_of "$DEF_FLASH") $(slug_of "$DEF_FLASH_LO") $(slug_of "$DEF_PRO") gemini-3.5-flash"
+STUB_MODELS="$(slug_of "$DEF_FLASH") $(slug_of "$DEF_FLASH_MEDIUM") $(slug_of "$DEF_PRO") gemini-3.5-flash"
 export STUB_MODELS
 
 # doctor keeps its OWN copy of these defaults, and a mismatch makes it warn that a tier
 # model is missing while delegation happily uses a different one. Pin them together.
-for _t in FLASH FLASH_LO PRO; do
-  _w="$(tier_default "$_t")"
-  _d="$(sed -n "s/.*CLAUDE_PLUGIN_OPTION_TIER_$_t:-\\(.*\\)}\".*/\\1/p" "$ROOT/scripts/doctor.sh" | head -1)"
-  if [ -n "$_w" ] && [ "$_w" = "$_d" ]; then
-    echo "ok: doctor and the wrapper agree on the $_t tier default"; PASS=$((PASS+1));
-  else echo "FAIL: tier $_t default drift — wrapper '$_w' vs doctor '$_d'"; FAIL=$((FAIL+1)); fi
+fallback_drift=0
+for fallback_file in "$DELEGATE" "$ROOT/scripts/doctor.sh"; do
+  grep -q 'Gemini 3.8 Flash (Medium)' "$fallback_file" || fallback_drift=1
+  grep -q 'Gemini 3.8 Flash (High)' "$fallback_file" || fallback_drift=1
 done
+if [ "$fallback_drift" -eq 0 ]; then
+  echo "ok: doctor and wrapper share the 3.8 Flash fallbacks"; PASS=$((PASS+1));
+else echo "FAIL: doctor/wrapper Flash fallback drift"; FAIL=$((FAIL+1)); fi
 
 # bash does not hoist: a function called above its definition is `command not found`,
 # exit 127, and every `if` around it silently takes the else branch. That is how two
@@ -117,7 +115,7 @@ cat > "$TMP/bin/agy" <<'STUB'
 # tier-model check is exercised against the current format.
 if [ "$1" = "models" ]; then
   # shellcheck disable=SC2086  # word splitting is the point: one slug per argument
-  printf '%s\n' ${STUB_MODELS:-gemini-3.6-flash-high gemini-3.5-flash gemini-3.5-flash-low gemini-3.1-pro-high}
+  printf '%s\n' ${STUB_MODELS:-gemini-3.8-flash-high gemini-3.8-flash-medium gemini-3.1-pro-high}
   exit 0
 fi
 # `agy --help`: advertise --output-format only when STUB_JSON_CAPABLE=1, so tests can
@@ -227,7 +225,13 @@ out=$("$DELEGATE" --tier 2>/dev/null); rc=$?
 check "option without value -> exit 1 (friendly)" 1 "$rc"
 
 out=$(STUB_MODE=args "$DELEGATE" --tier flash "hi" 2>/dev/null); rc=$?
-check "flash tier -> correct model string" 0 "$rc" "Gemini 3.7 Flash (High)" "$out"
+check "flash tier -> latest High model" 0 "$rc" "$DEF_FLASH" "$out"
+
+out=$(STUB_MODE=args "$DELEGATE" --tier flash-medium "hi" 2>/dev/null); rc=$?
+check "flash-medium tier -> latest Medium model" 0 "$rc" "$DEF_FLASH_MEDIUM" "$out"
+
+out=$(STUB_MODE=args "$DELEGATE" --tier flash-lo "hi" 2>&1); rc=$?
+check "removed flash-lo tier is rejected" 1 "$rc" "unknown tier" "$out"
 
 out=$(STUB_MODE=args "$DELEGATE" --tier pro "hi" 2>/dev/null); rc=$?
 check "pro tier -> correct model string" 0 "$rc" "Gemini 3.1 Pro (High)" "$out"
@@ -420,13 +424,13 @@ out=$(STUB_MODE=args CLAUDE_PLUGIN_OPTION_DEFAULT_TIER=pro "$DELEGATE" "hi" 2>/d
 check "userConfig default_tier=pro -> Pro model" 0 "$rc" "Gemini 3.1 Pro (High)" "$out"
 
 out=$(STUB_MODE=args CLAUDE_PLUGIN_OPTION_DEFAULT_TIER=pro "$DELEGATE" --tier flash "hi" 2>/dev/null); rc=$?
-check "explicit --tier overrides userConfig" 0 "$rc" "Gemini 3.7 Flash (High)" "$out"
+check "explicit --tier overrides userConfig" 0 "$rc" "$DEF_FLASH" "$out"
 
 # multi-model: default_model + per-tier remap (agy supports Claude/GPT on some plans)
 out=$(STUB_MODE=args CLAUDE_PLUGIN_OPTION_DEFAULT_MODEL="Claude Sonnet 4.5" "$DELEGATE" "hi" 2>/dev/null); rc=$?
 check "userConfig default_model -> used as-is" 0 "$rc" "Claude Sonnet 4.5" "$out"
 out=$(STUB_MODE=args CLAUDE_PLUGIN_OPTION_DEFAULT_MODEL="Claude Sonnet 4.5" "$DELEGATE" --tier flash "hi" 2>/dev/null); rc=$?
-check "explicit --tier beats default_model" 0 "$rc" "Gemini 3.7 Flash (High)" "$out"
+check "explicit --tier beats default_model" 0 "$rc" "$DEF_FLASH" "$out"
 out=$(STUB_MODE=args CLAUDE_PLUGIN_OPTION_DEFAULT_MODEL="Claude Sonnet 4.5" "$DELEGATE" -m "GPT-X" "hi" 2>/dev/null); rc=$?
 check "explicit --model beats default_model" 0 "$rc" "GPT-X" "$out"
 out=$(STUB_MODE=args CLAUDE_PLUGIN_OPTION_TIER_FLASH="Claude Sonnet 4.5" "$DELEGATE" --tier flash "hi" 2>/dev/null); rc=$?
@@ -454,7 +458,7 @@ else echo "FAIL: idle-timeout override surface is incomplete"; FAIL=$((FAIL+1));
 
 # invalid default tier from config falls back to flash; explicit --tier typo still errors
 out=$(STUB_MODE=args CLAUDE_PLUGIN_OPTION_DEFAULT_TIER=bogus "$DELEGATE" "hi" 2>/dev/null); rc=$?
-check "invalid userConfig tier -> falls back to flash" 0 "$rc" "Gemini 3.7 Flash (High)" "$out"
+check "invalid userConfig tier -> falls back to flash-medium" 0 "$rc" "$DEF_FLASH_MEDIUM" "$out"
 out=$("$DELEGATE" --tier bogus "hi" 2>/dev/null); rc=$?
 check "explicit --tier bogus -> exit 1" 1 "$rc"
 
@@ -663,7 +667,7 @@ out=$("$HOOKS/inject-policy.sh" 2>/dev/null); rc=$?
 check "inject-policy default on -> emits additionalContext" 0 "$rc" "additionalContext" "$out"
 check "inject-policy uses lean routing (not 'delegate everything')" 0 "$rc" "LEAN ROUTING" "$out"
 check "inject-policy allows small tasks" 0 "$rc" "including small tasks" "$out"
-check "inject-policy pins normal work to Flash" 0 "$rc" 'Gemini 3.7 Flash (`--tier flash`)' "$out"
+check "inject-policy requires adaptive Medium/High choice" 0 "$rc" '`--tier flash-medium`' "$out"
 check "inject-policy routes repository exploration through agy-scout" 0 "$rc" "agy-scout --dir" "$out"
 check "inject-policy routes raw diffs through agy-review" 0 "$rc" "agy-review --dir" "$out"
 check "inject-policy forbids duplicate raw-diff ingestion" 0 "$rc" "NEVER load or print the raw diff" "$out"
@@ -903,9 +907,9 @@ else echo "FAIL: delegate agent missing PreToolUse gate"; FAIL=$((FAIL+1)); fi
 if grep -q "PROACTIVELY" "$AGENT" && grep -q "break-even judgment is yours" "$AGENT" && grep -q "Never refuse solely because a task is" "$AGENT"; then
   echo "ok: delegate agent is proactive AND keeps the break-even judgment"; PASS=$((PASS+1));
 else echo "FAIL: delegate agent missing proactive-with-judgment description"; FAIL=$((FAIL+1)); fi
-if grep -q 'Explicitly pass `--tier flash`' "$AGENT" && ! grep -q 'do \*\*not\*\* delegate' "$AGENT"; then
-  echo "ok: delegate agent allows small tasks and explicitly selects Flash"; PASS=$((PASS+1));
-else echo "FAIL: delegate agent small-task/Flash policy missing or contradictory"; FAIL=$((FAIL+1)); fi
+if grep -q 'Explicitly pass `--tier flash-medium` or `--tier flash`' "$AGENT" && ! grep -q 'do \*\*not\*\* delegate' "$AGENT"; then
+  echo "ok: delegate agent allows small tasks and explicitly selects Medium or High"; PASS=$((PASS+1));
+else echo "FAIL: delegate agent adaptive Flash policy missing or contradictory"; FAIL=$((FAIL+1)); fi
 
 echo "== bin/ entrypoints (issue #11: \$CLAUDE_PLUGIN_ROOT not on model-run Bash) =="
 BIN="$ROOT/bin"
@@ -1089,7 +1093,7 @@ ver_doctor() { # $1 = version the stub reports; echoes doctor's output
   local d; d="$TMP/agyver"; mkdir -p "$d"
   { echo '#!/usr/bin/env bash'
     echo "[ \"\$1\" = --version ] && { echo '$1'; exit 0; }"
-    echo "[ \"\$1\" = models ] && { printf '%s\\n' '$DEF_FLASH' '$DEF_FLASH_LO' '$DEF_PRO'; exit 0; }"
+    echo "[ \"\$1\" = models ] && { printf '%s\\n' '$DEF_FLASH' '$DEF_FLASH_MEDIUM' '$DEF_PRO'; exit 0; }"
     echo 'exit 0'; } > "$d/agy"
   chmod +x "$d/agy"
   PATH="$d:$PATH" bash "$ROOT/scripts/doctor.sh" 2>&1
@@ -1122,7 +1126,7 @@ brk="$TMP/nosort"; mkdir -p "$brk"; printf '#!/bin/sh\nexit 127\n' > "$brk/sort"
 d="$TMP/agyver"; mkdir -p "$d"
 { echo '#!/usr/bin/env bash'
   echo '[ "$1" = --version ] && { echo 1.1.9; exit 0; }'
-  echo "[ \"\$1\" = models ] && { printf '%s\\n' '$DEF_FLASH' '$DEF_FLASH_LO' '$DEF_PRO'; exit 0; }"
+  echo "[ \"\$1\" = models ] && { printf '%s\\n' '$DEF_FLASH' '$DEF_FLASH_MEDIUM' '$DEF_PRO'; exit 0; }"
   echo 'exit 0'; } > "$d/agy"
 chmod +x "$d/agy"
 # Capture, THEN grep. `cmd | grep -q` exits at the first match and closes the pipe, the
@@ -1231,7 +1235,7 @@ probe_doctor() { # $1 = version the stub reports, $2 = what `-p /model` answers 
   local d="$TMP/agyprobe"; rm -rf "$d"; mkdir -p "$d"
   { echo '#!/usr/bin/env bash'
     echo "[ \"\$1\" = --version ] && { echo '$1'; exit 0; }"
-    echo "[ \"\$1\" = models ] && { printf '%s\\n' '$DEF_FLASH' '$DEF_FLASH_LO' '$DEF_PRO'; exit 0; }"
+    echo "[ \"\$1\" = models ] && { printf '%s\\n' '$DEF_FLASH' '$DEF_FLASH_MEDIUM' '$DEF_PRO'; exit 0; }"
     # Log every /model invocation, whatever position the flag lands in.
     echo "for a in \"\$@\"; do [ \"\$a\" = /model ] && { echo \"\$*\" >> '$d/probed'; printf '%s\n' '$2'; exit 0; }; done"
     echo 'exit 0'; } > "$d/agy"
@@ -1255,7 +1259,7 @@ if has 'model takes effect' "$probe_out"; then
   echo "ok: probe confirms --model took effect across slug/display-name forms"; PASS=$((PASS+1));
 else echo "FAIL: probe did not confirm a model agy echoed back verbatim"; FAIL=$((FAIL+1)); fi
 # The case the probe exists for: agy answers with something else entirely.
-probe_out="$(probe_doctor 1.1.11 "gemini-3.6-flash-low	Gemini 3.6 Flash (Low)")"
+probe_out="$(probe_doctor 1.1.11 "gemini-3.8-flash-medium	Gemini 3.8 Flash (Medium)")"
 if has 'does NOT take effect' "$probe_out"; then
   echo "ok: probe catches agy running a different model than asked for"; PASS=$((PASS+1));
 else echo "FAIL: doctor accepted a model it did not ask for"; FAIL=$((FAIL+1)); fi
@@ -1283,7 +1287,7 @@ allow_doctor() { # $1 = agy version, $2 = the "allow" array, $3 = optional /perm
   local d="$TMP/agyallow"; rm -rf "$d"; mkdir -p "$d"
   { echo '#!/usr/bin/env bash'
     echo "[ \"\$1\" = --version ] && { echo '$1'; exit 0; }"
-    echo "[ \"\$1\" = models ] && { printf '%s\\n' '$DEF_FLASH' '$DEF_FLASH_LO' '$DEF_PRO'; exit 0; }"
+    echo "[ \"\$1\" = models ] && { printf '%s\\n' '$DEF_FLASH' '$DEF_FLASH_MEDIUM' '$DEF_PRO'; exit 0; }"
     # agy 1.1.12+ answers /permissions in print mode. Empty by default, so every
     # existing case still exercises the settings.json fallback unchanged.
     echo "for a in \"\$@\"; do [ \"\$a\" = /permissions ] && { printf '%s' '${3:-}'; exit 0; }; done"
@@ -1392,7 +1396,7 @@ noset_h="$TMP/nosettings"; rm -rf "$noset_h"; mkdir -p "$noset_h/.gemini"
 noset_d="$TMP/agynoset"; rm -rf "$noset_d"; mkdir -p "$noset_d"
 { echo '#!/usr/bin/env bash'
   echo '[ "$1" = --version ] && { echo 1.1.12; exit 0; }'
-  echo "[ \"\$1\" = models ] && { printf '%s\\n' '$DEF_FLASH' '$DEF_FLASH_LO' '$DEF_PRO'; exit 0; }"
+  echo "[ \"\$1\" = models ] && { printf '%s\\n' '$DEF_FLASH' '$DEF_FLASH_MEDIUM' '$DEF_PRO'; exit 0; }"
   echo "for a in \"\$@\"; do [ \"\$a\" = /permissions ] && { printf 'shared\\tallow\\tcommand(time)\\n'; exit 0; }; done"
   echo 'exit 0'; } > "$noset_d/agy"
 chmod +x "$noset_d/agy"
@@ -1591,42 +1595,22 @@ if [ "$out" = "IN-SYNC" ]; then
   echo "ok: agy-cost-compare fallback rates match prices.json"; PASS=$((PASS+1));
 else echo "FAIL: rate drift — $out"; FAIL=$((FAIL+1)); fi
 
-# agy-cost-compare picks the `gemini_flash` key by TIER NAME, not by model, so that key
-# must price whatever `model_for_tier()`'s flash default actually resolves to. Repricing
-# it for a newer model that is NOT the default silently understates the Gemini side out
-# of the box — which is exactly what happened when 3.6's cheaper output landed here while
-# the flash tier still pointed at 3.5.
+# Both dynamic Flash effort tiers share the generic estimate. Because the selected model
+# can advance without a repository update, prices.json must disclose that its price does
+# not auto-update and must be verified before it is quoted.
 out=$(ROOT="$ROOT" python3 - <<'PY' 2>&1
-import json, os, re
+import json, os
 root = os.environ["ROOT"]
 pj = json.load(open(os.path.join(root, "prices.json")))
-src = open(os.path.join(root, "scripts", "agy-delegate.sh")).read()
-m = re.search(r'flash\)\s*echo "\$\{CLAUDE_PLUGIN_OPTION_TIER_FLASH:-([^}]*)\}"', src)
-if not m:
-    print("flash tier default not found (model_for_tier pattern changed?)"); raise SystemExit
-default = m.group(1)
-# Derive the key from the default rather than enumerating versions. The previous shape
-# hardcoded 3.5 and 3.6 and told you to "reconcile by hand" for anything else, which is a
-# failure the moment a new Flash ships — the exact situation 3.7 created.
-ver = re.search(r"(\d+)\.(\d+)", default)
-if not ver:
-    print(f"cannot read a version out of the flash default {default!r}"); raise SystemExit
-key = "gemini_flash_%s%s" % ver.groups()
-flash, per_model = pj["gemini_flash"], pj.get(key)
-if per_model is None:
-    print(f"flash tier is {default!r} but prices.json has no {key} to mirror")
-elif flash != per_model:
-    print(f"flash tier is {default!r} but gemini_flash {flash} != {key} {per_model}")
-elif key not in pj.get("_gemini_flash_note", ""):
-    # The note is how a human learns which model the generic key is priced for. If it
-    # names a different one, the next person reprices against the wrong model.
-    print(f"_gemini_flash_note does not mention {key}, so it describes the wrong model")
-else:
-    print("OK")
+note = pj.get("_gemini_flash_note", "").lower()
+rates = pj.get("gemini_flash", {})
+print("OK" if all(float(rates[k]) > 0 for k in ("in", "out", "cached_in"))
+      and "dynamic" in note and "verify" in note and "cannot update itself" in note
+      else "generic dynamic Flash pricing disclosure is missing or invalid")
 PY
 )
 if [ "$out" = "OK" ]; then
-  echo "ok: prices.json gemini_flash matches the shipped flash tier"; PASS=$((PASS+1));
+  echo "ok: prices.json discloses the generic dynamic-Flash estimate"; PASS=$((PASS+1));
 else echo "FAIL: $out"; FAIL=$((FAIL+1)); fi
 
 echo "== measure-session.py =="
