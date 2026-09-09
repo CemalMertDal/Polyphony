@@ -71,7 +71,7 @@ The caller should choose the tier that matches the task:
 | `flash` | Complex reasoning, architecture, concurrency/security, difficult debugging, ambiguous multi-file work, or adversarial review | Newest available Gemini Flash, High effort |
 | `pro` | Exceptional escalation only | Configured Gemini Pro model |
 
-There is no Low tier. Both Flash tiers query `agy models` and automatically follow the newest available Gemini Flash family. If discovery is unavailable, version 0.28.0 falls back to Gemini 3.8 Flash at the selected effort level. Exact models can still be supplied with `--model` or the plugin configuration overrides.
+There is no Low tier. Both Flash tiers query `agy models` and automatically follow the newest available Gemini Flash family. If discovery is unavailable, version 0.29.0 falls back to Gemini 3.8 Flash at the selected effort level. Exact models can still be supplied with `--model` or the plugin configuration overrides.
 
 ## Usage
 
@@ -96,6 +96,11 @@ agy-job start --tier flash --dir "C:\path\to\repo" "Complete this long-running t
 ```
 
 Routine calls default to 30 minutes. The Codex MCP transport allows 35 minutes so a healthy long-running worker can return before the transport closes. Use `--timeout` when a task needs a different wrapper deadline.
+
+If a Gemini Flash call exhausts quota, the shared wrapper repeats the same task once
+with `claude-sonnet-4-6`. The retry preserves the effective workspace, permission,
+timeout, mode, sandbox, structured-output, and digest settings, but starts a fresh model
+conversation. The Sonnet result is final; no further fallback is attempted.
 
 ## Permissions and troubleshooting
 

@@ -192,6 +192,51 @@ resolve_flash_model() { # $1 = medium|high, $2 = stable fallback
   [ -n "$resolved" ] && printf '%s\n' "$resolved" || printf '%s\n' "$fallback"
 }
 
+# True if $1 is a Gemini Flash model (display name or slug).
+is_gemini_flash_model() {
+  local m
+  m="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')"
+  case "$m" in
+    *gemini*flash*|*flash*gemini*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# One-shot Claude Sonnet 4.6 fallback when a Gemini Flash invocation hits quota.
+attempt_fallback() {
+  [ "${_AGY_DELEGATE_FALLBACK:-0}" != 1 ] || return 1
+  is_gemini_flash_model "$MODEL" || return 1
+
+  local fallback_notice
+  fallback_notice="$(printf 'AGY_FALLBACK {"reason":"QUOTA_EXHAUSTED","from":"%s","to":"claude-sonnet-4-6","attempt":1}' "$MODEL")"
+  printf '%s\n' "$fallback_notice" >&2
+  tee_usage "$fallback_notice"
+  local fallback_args=(--model "claude-sonnet-4-6" --timeout "$TIMEOUT")
+  local d
+  for d in "${ADD_DIRS[@]:-}"; do
+    [ -n "$d" ] && fallback_args+=(--dir "$d")
+  done
+  if [ "$IDLE_TIMEOUT_EXPLICIT" -eq 1 ]; then
+    fallback_args+=(--idle-timeout "$IDLE_TIMEOUT")
+  fi
+  if [ "$YOLO" -eq 1 ]; then
+    fallback_args+=(--yolo)
+  fi
+  if [ "$SANDBOX" -eq 1 ]; then
+    fallback_args+=(--sandbox)
+  fi
+  if [ "$DIGEST" -eq 1 ]; then
+    fallback_args+=(--digest)
+  fi
+  if [ -n "$MODE" ]; then
+    fallback_args+=(--mode "$MODE")
+  fi
+  set +e
+  _AGY_DELEGATE_FALLBACK=1 "$HERE/agy-delegate.sh" "${fallback_args[@]}" -- "$ORIG_PROMPT"
+  local fallback_rc=$?
+  exit "$fallback_rc"
+}
+
 # True when running under WSL (Windows Subsystem for Linux).
 on_wsl() { [ -n "${WSL_DISTRO_NAME:-}" ] || grep -qi microsoft /proc/version 2>/dev/null; }
 
@@ -295,6 +340,7 @@ while [ $# -gt 0 ]; do
 done
 
 [ -n "$PROMPT" ] || die "no prompt given (pass a string, or '-' to read stdin)"
+ORIG_PROMPT="$PROMPT"
 # --print-command is a dry run (introspection), so it doesn't require agy on PATH.
 # On Windows the bridge also honours AGY_PATH and agy's default install dirs.
 if [ "$PRINT_CMD" -ne 1 ] && ! command -v agy >/dev/null 2>&1 \
@@ -325,7 +371,7 @@ fi
 # WSL gotcha: agy reads --add-dir over the /mnt/* Windows mount via a slow 9p bridge,
 # so even trivial calls can take 20s+. Warn (don't fail); the fix is to move the repo
 # into the WSL Linux filesystem (~).
-if on_wsl; then
+if on_wsl && [ "${_AGY_DELEGATE_FALLBACK:-0}" != 1 ]; then
   for d in "${ADD_DIRS[@]:-}"; do
     [ -n "$d" ] || continue
     case "$d" in
@@ -355,7 +401,7 @@ fi
 # Best-effort heuristic; warn only. --print-command (dry run) is exempt.
 # Lean read-only wrappers set AGY_DELEGATE_READ_ONLY=1 because their payload may quote
 # words such as "implement" from a diff even though agy receives no repository/tools.
-if [ "$YOLO" -eq 0 ] && [ "$PRINT_CMD" -ne 1 ] && [ "${AGY_DELEGATE_READ_ONLY:-0}" != 1 ]; then
+if [ "$YOLO" -eq 0 ] && [ "$PRINT_CMD" -ne 1 ] && [ "${AGY_DELEGATE_READ_ONLY:-0}" != 1 ] && [ "${_AGY_DELEGATE_FALLBACK:-0}" != 1 ]; then
   shopt -s nocasematch
   case "$PROMPT" in
     *implement*|*scaffold*|*migrate*|*refactor*|*"write the file"*|*"create the file"*|*"edit the file"*)
@@ -671,11 +717,6 @@ if ! on_windows_native && [ -n "$TO_CMD" ] && { [ $RC -eq 124 ] || [ $RC -eq 137
 fi
 
 if [ $RC -ne 0 ]; then
-  echo "agy-delegate: agy exited $RC" >&2
-  [ -s "$ERR" ] && cat "$ERR" >&2
-  # In JSON mode agy puts the diagnostic in the envelope instead of stderr — relay it
-  # so the failure is still visible to a human reading the transcript.
-  [ -n "$JSON_ERROR" ] && printf '%s\n' "$JSON_ERROR" >&2
   # Best-effort classification into a structured code (the generic 2 is the safe
   # fallback). Scans agy's diagnostics only — never the model-generated response,
   # which could contain trigger words and misclassify. In JSON mode (agy >= 1.1.8)
@@ -685,6 +726,21 @@ if [ $RC -ne 0 ]; then
   blob="$(cat "$ERR" 2>/dev/null)"
   [ -n "$JSON_ERROR" ] && blob="$JSON_ERROR
 $blob"
+  shopt -s nocasematch
+  case "$blob" in
+    *quota*|*"rate limit"*|*"resource exhausted"*)
+      shopt -u nocasematch
+      attempt_fallback || true
+      ;;
+    *)
+      shopt -u nocasematch ;;
+  esac
+
+  echo "agy-delegate: agy exited $RC" >&2
+  [ -s "$ERR" ] && cat "$ERR" >&2
+  # In JSON mode agy puts the diagnostic in the envelope instead of stderr — relay it
+  # so the failure is still visible to a human reading the transcript.
+  [ -n "$JSON_ERROR" ] && printf '%s\n' "$JSON_ERROR" >&2
   shopt -s nocasematch
   case "$blob" in
     # FIRST, because these strings are the most specific ones here and must not be

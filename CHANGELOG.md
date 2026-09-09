@@ -3,6 +3,16 @@
 All notable changes to **Antigravity for Claude Code and Codex**. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions are in `.claude-plugin/plugin.json`.
 
+## 0.29.0 — One-shot Sonnet quota fallback
+
+- When a Gemini Flash worker exhausts quota, the shared wrapper now retries the same
+  task once with `claude-sonnet-4-6`, preserving execution settings while starting a
+  fresh model conversation.
+- The fallback result and exit code are final; Sonnet quota or any other failure stops
+  immediately, preventing retry loops.
+- Added hermetic coverage for option/prompt preservation, digest de-duplication,
+  conversation isolation, model-unavailable handling, and the two-attempt ceiling.
+
 ## 0.28.0 — Adaptive latest-Flash effort routing
 
 - Replaced the removed Low tier with `flash-medium`; routine work now defaults to

@@ -130,7 +130,8 @@ not over `--dir`) · `--sandbox` (does NOT contain anything; measured inert unde
 
 The wrapper exits non-zero and prints an `AGY_SIGNAL {...}` line on failure:
 
-- `10` quota / rate limit → report it; suggest the caller retry later with `--continue`.
+- `10` quota / rate limit → Gemini Flash has already received one fresh
+  `claude-sonnet-4-6` fallback attempt; report the Sonnet failure and stop.
 - `11` auth required → tell the caller to run `agy` once interactively to sign in.
 - `12` timeout → on Windows, do not label one `idle (no output)` result a connectivity
   failure. Run a short `/model` or one-file read health probe. If it succeeds, split an

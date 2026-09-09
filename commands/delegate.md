@@ -47,6 +47,10 @@ Do this:
 Small tasks are explicitly eligible. Do not refuse solely because a task is below the
 cost break-even; use one precise synchronous Flash delegation and avoid needless fan-out.
 
+If Gemini Flash exhausts quota, the wrapper automatically repeats the same task once
+with `claude-sonnet-4-6`. It preserves execution settings, starts a fresh model
+conversation, and returns the Sonnet attempt's exact result without another fallback.
+
 **Long task, interactive session?** A sync delegation can also hit Claude Code's ~2-min
 Bash-tool limit — start it in the background and keep working (this also keeps the prompt
 cache warm and frees you to do other turns):

@@ -1,6 +1,6 @@
 {
   "name": "antigravity",
-  "version": "0.28.0",
+  "version": "0.29.0",
   "description": "Run the Antigravity CLI (Gemini) as a collaborating worker from Claude Code and Codex, including native Windows ConPTY support.",
   "author": {
     "name": "GryAsl"

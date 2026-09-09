@@ -181,7 +181,7 @@ On classifiable failures the wrapper prints a machine-readable line to stderr:
 | 1 | usage error | check flags (`agy-delegate --help`) |
 | 2 | agy failed (unclassified) | read the stderr it relayed |
 | 3 | agy returned empty output | retry; check model availability (`agy models`) |
-| 10 | quota / rate limit | wait, then resume the same conversation with `--continue` |
+| 10 | quota / rate limit | Gemini Flash already fell back once to a fresh `claude-sonnet-4-6` call; Sonnet also hit quota, so stop and retry later |
 | 11 | not authenticated | run `agy` once interactively to sign in |
 | 12 | timeout (agy's own, or the wall-clock guard) | raise `--timeout`, narrow the task; on Windows see the hang section above |
 | 13 | agy not on PATH | install the Antigravity CLI |

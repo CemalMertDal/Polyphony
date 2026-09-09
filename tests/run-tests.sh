@@ -125,6 +125,9 @@ if [ "$1" = "--help" ]; then
   echo "  --print-timeout  timeout"
   exit 0
 fi
+if [ "$1" != "models" ] && [ "$1" != "--help" ]; then
+  [ -n "${STUB_CALL_LOG:-}" ] && printf '%s\n' "$*" >> "$STUB_CALL_LOG"
+fi
 case "${STUB_MODE:-text}" in
   empty)   exit 0 ;;                  # no stdout -> wrapper should exit 3
   fail)    echo "boom" >&2; exit 7 ;; # nonzero  -> wrapper should exit 2
@@ -157,6 +160,20 @@ case "${STUB_MODE:-text}" in
   # at the first `"` loses it and the failure misclassifies. This is what shipped.
   json_err_quoted) printf '{"conversation_id":"","status":"ERROR","response":"","error":"invalid model selection (--model \\"X\\" --effort \\"\\"): model X is not recognized as a known model or custom model in settings","usage":{}}'; exit 1 ;;
   json_quota) printf '{"conversation_id":"","status":"ERROR","response":"","error":"quota exceeded for this model","usage":{}}'; exit 1 ;;
+  flash_quota_sonnet_ok)
+    case "$*" in
+      *claude-sonnet-4-6*)
+        echo "SONNET_OK: $*" ;;
+      *)
+        echo "Error: quota exceeded for this model" >&2; exit 1 ;;
+    esac ;;
+  flash_quota_sonnet_badmodel)
+    case "$*" in
+      *claude-sonnet-4-6*)
+        echo "Error: invalid --model \"claude-sonnet-4-6\": model claude-sonnet-4-6 is not recognized as a known model" >&2; exit 1 ;;
+      *)
+        echo "Error: quota exceeded for this model" >&2; exit 1 ;;
+    esac ;;
   *)       echo "STUB_OK" ;;
 esac
 STUB
@@ -579,6 +596,80 @@ check "WSL + /mnt --dir -> slow-mount note" 0 "$rc" "9p bridge" "$out"
 out=$(WSL_DISTRO_NAME=Ubuntu "$DELEGATE" --dir /home/u/proj --print-command "hi" 2>&1); rc=$?
 if grep -q "9p bridge" <<<"$out"; then echo "FAIL: slow-mount note fired for a Linux-FS --dir"; FAIL=$((FAIL+1));
 else echo "ok: no slow-mount note for a Linux-FS --dir"; PASS=$((PASS+1)); fi
+
+# --- Gemini Flash quota -> Claude Sonnet 4.6 fallback ---
+# 1. Gemini quota -> Sonnet success, advisory notice, no final QUOTA_EXHAUSTED
+out=$(STUB_MODE=flash_quota_sonnet_ok "$DELEGATE" "hello fallback" 2>&1); rc=$?
+check "Gemini quota -> Sonnet success" 0 "$rc" "SONNET_OK" "$out"
+if has "QUOTA_EXHAUSTED" "$out"; then
+  echo "FAIL: Gemini quota emitted QUOTA_EXHAUSTED before Sonnet fallback"; FAIL=$((FAIL+1));
+else echo "ok: no final QUOTA_EXHAUSTED emitted when fallback launched"; PASS=$((PASS+1)); fi
+check "machine-readable fallback notice emitted" 0 0 'AGY_FALLBACK {"reason":"QUOTA_EXHAUSTED"' "$out"
+
+# 2. exact Sonnet model slug is used
+check "exact Sonnet model slug claude-sonnet-4-6 is used" 0 "$rc" "--model claude-sonnet-4-6" "$out"
+
+# 3. relevant options and original prompt are preserved
+out=$(STUB_MODE=flash_quota_sonnet_ok "$DELEGATE" \
+  --dir "$TMP" --yolo --sandbox --mode plan --timeout 15m --idle-timeout 500 "orig prompt text" 2>&1); rc=$?
+check "fallback preserves options and original prompt" 0 "$rc" "SONNET_OK" "$out"
+check "fallback preserves --dir" 0 0 "--add-dir $TMP" "$out"
+check "fallback preserves --yolo" 0 0 "--dangerously-skip-permissions" "$out"
+check "fallback preserves --sandbox" 0 0 "--sandbox" "$out"
+check "fallback preserves --mode plan" 0 0 "--mode plan" "$out"
+check "fallback preserves --timeout" 0 0 "--print-timeout 15m" "$out"
+check "fallback preserves original prompt" 0 0 "orig prompt text" "$out"
+
+# 4. digest contract appears once
+out=$(STUB_MODE=flash_quota_sonnet_ok "$DELEGATE" --digest "test prompt" 2>&1); rc=$?
+check "fallback with --digest succeeds" 0 "$rc" "SONNET_OK" "$out"
+contract_count=$(grep -o "OUTPUT CONTRACT (digest)" <<<"$out" | wc -l | tr -d ' ')
+if [ "$contract_count" -eq 1 ]; then
+  echo "ok: digest contract appears exactly once in Sonnet prompt"; PASS=$((PASS+1));
+else echo "FAIL: digest contract count want 1 got $contract_count"; FAIL=$((FAIL+1)); fi
+
+# 5. stateful conversation flags are omitted across model change
+SUBCALL="$TMP/subcall.log"; rm -f "$SUBCALL"
+out=$(STUB_CALL_LOG="$SUBCALL" STUB_MODE=flash_quota_sonnet_ok "$DELEGATE" -c --conversation conv123 "test prompt" 2>&1); rc=$?
+check "fallback with stateful flags succeeds" 0 "$rc" "SONNET_OK" "$out"
+first_call=$(head -n 1 "$SUBCALL")
+second_call=$(tail -n 1 "$SUBCALL")
+if has "--continue" "$first_call" && has "--conversation conv123" "$first_call"; then
+  echo "ok: first invocation includes stateful flags"; PASS=$((PASS+1));
+else echo "FAIL: first invocation missing stateful flags: $first_call"; FAIL=$((FAIL+1)); fi
+if has "--continue" "$second_call" || has "--conversation" "$second_call"; then
+  echo "FAIL: fallback invocation forwarded stateful conversation flags: $second_call"; FAIL=$((FAIL+1));
+else echo "ok: fallback invocation omits stateful conversation flags"; PASS=$((PASS+1)); fi
+
+# 6. Gemini quota -> Sonnet quota stops after exactly two invocations with exit 10
+SUBCALL="$TMP/subcall.log"; rm -f "$SUBCALL"
+out=$(STUB_CALL_LOG="$SUBCALL" STUB_MODE=quota "$DELEGATE" "test prompt" 2>&1); rc=$?
+check "Gemini quota -> Sonnet quota exits 10" 10 "$rc" "QUOTA_EXHAUSTED" "$out"
+invocations=$(wc -l < "$SUBCALL" | tr -d ' ')
+if [ "$invocations" -eq 2 ]; then
+  echo "ok: Gemini quota -> Sonnet quota stops after exactly two invocations"; PASS=$((PASS+1));
+else echo "FAIL: invocation count want 2 got $invocations"; FAIL=$((FAIL+1)); fi
+
+# 7. explicit/non-Gemini Sonnet quota does not fallback
+SUBCALL="$TMP/subcall.log"; rm -f "$SUBCALL"
+out=$(STUB_CALL_LOG="$SUBCALL" STUB_MODE=quota "$DELEGATE" -m "claude-sonnet-4-6" "test prompt" 2>&1); rc=$?
+check "explicit Sonnet quota exits 10" 10 "$rc" "QUOTA_EXHAUSTED" "$out"
+invocations=$(wc -l < "$SUBCALL" | tr -d ' ')
+if [ "$invocations" -eq 1 ]; then
+  echo "ok: explicit Sonnet quota does not fallback (exactly 1 invocation)"; PASS=$((PASS+1));
+else echo "FAIL: explicit Sonnet quota invocation count want 1 got $invocations"; FAIL=$((FAIL+1)); fi
+
+SUBCALL="$TMP/subcall.log"; rm -f "$SUBCALL"
+out=$(STUB_CALL_LOG="$SUBCALL" STUB_MODE=quota "$DELEGATE" --tier pro "test prompt" 2>&1); rc=$?
+check "non-Gemini-Flash (pro) quota exits 10 without fallback" 10 "$rc" "QUOTA_EXHAUSTED" "$out"
+invocations=$(wc -l < "$SUBCALL" | tr -d ' ')
+if [ "$invocations" -eq 1 ]; then
+  echo "ok: pro tier quota does not fallback (exactly 1 invocation)"; PASS=$((PASS+1));
+else echo "FAIL: pro tier quota invocation count want 1 got $invocations"; FAIL=$((FAIL+1)); fi
+
+# Sonnet model unavailable remains exit 14
+out=$(STUB_MODE=flash_quota_sonnet_badmodel "$DELEGATE" "hi" 2>&1); rc=$?
+check "Sonnet model unavailable remains exit 14" 14 "$rc" "MODEL_UNAVAILABLE" "$out"
 
 echo "== cloud-debug.sh (Cloud Run log digest engine) =="
 CLOUD="$ROOT/scripts/cloud-debug.sh"
