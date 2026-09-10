@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import unittest
 import uuid
 
@@ -16,9 +18,18 @@ HOOK = ROOT / "hooks" / "agy_opportunity_reminder.py"
 
 
 class OpportunityHookTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.env = os.environ.copy()
+        self.env["AGY_QUOTA_STATE_DIR"] = self.temp.name
+
+    def tearDown(self):
+        self.temp.cleanup()
+
     def invoke(self, payload):
         completed = subprocess.run(
             [sys.executable, str(HOOK)],
+            env=self.env,
             input=json.dumps(payload),
             text=True,
             encoding="utf-8",
@@ -28,6 +39,19 @@ class OpportunityHookTests(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0, completed.stderr)
         return completed.stdout.strip()
+
+    def quota_state(self, decision=None):
+        Path(self.temp.name, "state.json").write_text(
+            json.dumps({
+                "depleted": True,
+                "decision": decision,
+                "windows": {
+                    "5h": {"remaining": 1.5},
+                    "7d": {"remaining": 40},
+                },
+            }),
+            encoding="utf-8",
+        )
 
     def test_claude_read_warns_without_blocking(self):
         output = self.invoke(
@@ -87,6 +111,52 @@ class OpportunityHookTests(unittest.TestCase):
                 "tool_input": {"cmd": "agy-delegate --tier flash test"},
             }
         )
+        self.assertEqual(output, "")
+
+    def test_depleted_quota_prompts_for_an_explicit_choice_in_english(self):
+        self.quota_state()
+        output = self.invoke({
+            "hook_event_name": "UserPromptSubmit",
+            "session_id": str(uuid.uuid4()),
+            "prompt": "continue",
+        })
+        context = json.loads(output)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("kill any active Agy workers", context)
+        self.assertIn("check both quotas every 10 minutes", context)
+        self.assertIn("only the user's explicit choice", context)
+
+    def test_wait_choice_forbids_kill_and_sonnet(self):
+        self.quota_state("wait")
+        output = self.invoke({
+            "hook_event_name": "PreToolUse",
+            "session_id": str(uuid.uuid4()),
+            "tool_name": "exec_command",
+            "tool_input": {"cmd": "git status"},
+        })
+        context = json.loads(output)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Do not kill active Agy workers", context)
+        self.assertIn("every 10 minutes", context)
+
+    def test_sonnet_choice_requests_scoped_cancellation(self):
+        self.quota_state("sonnet")
+        output = self.invoke({
+            "hook_event_name": "PreToolUse",
+            "session_id": str(uuid.uuid4()),
+            "tool_name": "exec_command",
+            "tool_input": {"cmd": "git status"},
+        })
+        context = json.loads(output)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("user approved", context)
+        self.assertIn("agy-job cancel-all", context)
+
+    def test_codex_mcp_choice_recording_is_not_nagged(self):
+        self.quota_state()
+        output = self.invoke({
+            "hook_event_name": "PreToolUse",
+            "session_id": str(uuid.uuid4()),
+            "tool_name": "mcp__antigravity__quota",
+            "tool_input": {"action": "choose_sonnet"},
+        })
         self.assertEqual(output, "")
 
 

@@ -12,8 +12,8 @@ description: |
   reading happen on Gemini and do NOT spend Claude tokens. It returns agy's
   DIGEST for the caller to verify — it does not itself ship or claim success.
 
-  Deliberately select the effort tier: use `--tier flash-medium` for simple,
-  routine, mechanical, or bounded work; use `--tier flash` (High) for complex
+  Default to `--tier flash` (High). You may explicitly select `--tier flash-medium`
+  for clearly simple, routine, mechanical, or bounded work; use High for complex
   reasoning, architecture, concurrency/security, ambiguous multi-file behavior,
   difficult debugging, adversarial review, or one materially incomplete Medium
   result. Both track the newest Gemini Flash family. Reserve `pro` for exceptional escalation.
@@ -89,8 +89,8 @@ not over `--dir`) · `--sandbox` (does NOT contain anything; measured inert unde
 
 ## Strict delegation contract
 
-- Explicitly pass `--tier flash-medium` or `--tier flash` after judging task complexity;
-  never send every task to High by habit. Use `pro` only for exceptional escalation.
+- Default to `--tier flash` (High); explicitly pass `--tier flash-medium` only for a
+  clearly simple task. Use `pro` only for exceptional escalation.
 - Write a neutral prompt: objective, exact scope, relevant paths, constraints,
   acceptance criteria, permitted actions, and required evidence. Do not tell Gemini
   which conclusion Claude prefers; require it to disagree when evidence warrants it.
@@ -130,8 +130,11 @@ not over `--dir`) · `--sandbox` (does NOT contain anything; measured inert unde
 
 The wrapper exits non-zero and prints an `AGY_SIGNAL {...}` line on failure:
 
-- `10` quota / rate limit → Gemini Flash has already received one fresh
-  `claude-sonnet-4-6` fallback attempt; report the Sonnet failure and stop.
+- `10` quota / rate limit → either Gemini 5h/7d window may be at or below 2%.
+  Never switch automatically. Return the English user-choice prompt from the wrapper.
+  After explicit Sonnet approval, cancel stalled host tasks plus `agy-job cancel-all`,
+  record `agy-quota --decision sonnet`, and retry. After explicit wait approval, record
+  `agy-quota --decision wait`, keep workers alive, and check both windows every 10 minutes.
 - `11` auth required → tell the caller to run `agy` once interactively to sign in.
 - `12` timeout → on Windows, do not label one `idle (no output)` result a connectivity
   failure. Run a short `/model` or one-file read health probe. If it succeeds, split an

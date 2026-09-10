@@ -15,7 +15,7 @@ thing that writes anything, and only ever onto a branch for human review. For a 
 narrowing `--since` tightens the digest (and cost) further.
 
 Advanced (engine) flags also exist and can be passed through if the user asks: `--severity`
-(minimum severity, default `ERROR`) and `--tier` (agy tier for the digest, default `flash-medium`).
+(minimum severity, default `ERROR`) and `--tier` (agy tier for the digest, default `flash` / High).
 
 Do this:
 

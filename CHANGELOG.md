@@ -1,7 +1,24 @@
 # Changelog
 
-All notable changes to **Antigravity for Claude Code and Codex**. Format loosely follows
+All notable changes to **Polyphony**. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions are in `.claude-plugin/plugin.json`.
+
+## 0.30.0 — User-controlled Gemini quota handling
+
+- Renamed the project and repository to **Polyphony**, introduced the new branded hero
+  artwork and GitHub About metadata, and documented the Microsoft ConPTY foundation.
+- Added a shared, cached quota tracker backed by Agy's zero-token `/usage` command. It
+  evaluates both Gemini Five Hour and Weekly (7d) windows and treats either at or below
+  2% remaining as depleted.
+- Removed automatic Sonnet fallback. Depletion now requires an explicit user choice:
+  cancel stalled workers and continue with `claude-sonnet-4-6`, or leave workers alive
+  and recheck both windows every 10 minutes.
+- Added `agy-quota`, `/antigravity:quota`, a Codex `quota` MCP tool, and plugin-job
+  `cancel-all`. Claude and Codex reminder hooks surface the same decision state.
+- Added one-time English notices when either quota window crosses 75%, 50%, 25%, or 10%
+  remaining; notices become eligible again after the window resets.
+- Restored High as the default Flash effort everywhere; Medium remains an explicit
+  option for clearly simple work. Both still resolve the newest available Flash family.
 
 ## 0.29.0 — One-shot Sonnet quota fallback
 

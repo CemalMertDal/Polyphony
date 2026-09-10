@@ -1,7 +1,7 @@
 {
-  "name": "antigravity-for-claude-code-and-codex",
+  "name": "polyphony",
   "interface": {
-    "displayName": "Antigravity for Claude Code and Codex"
+    "displayName": "Polyphony"
   },
   "plugins": [
     {

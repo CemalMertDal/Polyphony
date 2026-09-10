@@ -1,10 +1,10 @@
 ---
 name: antigravity
 description: Run the Antigravity CLI (Gemini) as a collaborating AI inside Claude Code, with intelligent model routing across the software development lifecycle. Claude is the conductor/orchestrator — requirements, architecture, the hard 20%, verification, and review — and routes deterministic, high-volume work (scaffolding, boilerplate, test generation, first-pass review, migrations, web/Vertex AI Search) to Antigravity (Gemini), the cheaper, faster model. Use when the user wants to "use Antigravity / agy", "vibe code / agentic engineering", "accelerate the SDLC", "delegate to Gemini", "scaffold / generate tests / migrate", "first-pass code review", "search web or internal/company data", "deep research / multi-source research report", "second-model cross-check", or "lower token cost on a big job". Claude always verifies Antigravity's output and re-checks itself if unsatisfied.
-version: 0.29.0
+version: 0.30.0
 ---
 
-# Antigravity for Claude Code — hybrid SDLC
+# Polyphony — hybrid SDLC orchestration
 
 Run the **Antigravity CLI (`agy`, Gemini)** as a second AI working alongside Claude
 Code. The organizing idea is **intelligent model routing across the SDLC**: keep
@@ -47,10 +47,9 @@ Route each phase to the right model. This is the core policy.
 | Audio / video understanding | **agy** transcribes + digests · **Claude** verifies | Gemini is natively multimodal; no local ffmpeg/speech stack |
 | Deep research (multi-source) | **agy** fans out search/fetch · **Claude** plans, verifies ≥2 sources, synthesizes | offload bulky pages to cheap Gemini; frontier model judges |
 
-Routing tier within agy: `flash-medium` (routine default) · `flash` (High for
-complex/risky work) · `pro` (exceptional escalation). The main agent must choose
-Medium or High deliberately; both Flash tiers dynamically track the newest available
-Gemini Flash family.
+Routing tier within agy: `flash` (High, default) · `flash-medium` (an explicit option
+for clearly simple/routine work) · `pro` (exceptional escalation). Both Flash tiers
+dynamically track the newest available Gemini Flash family.
 
 **agy is multi-model.** Tiers map to Gemini by default, but you can point delegation at any
 model `agy models` lists (Claude / GPT on plans that expose them) — via `--model <exact name>`,
@@ -145,9 +144,25 @@ native Claude subagent merely to forward one Gemini call. Use the
 **`antigravity-delegate` subagent** only when its isolated context or restricted tool
 boundary materially helps. Either way, *you* still own verification.
 
-**Structured failures.** A Gemini Flash quota automatically triggers one fresh retry
-with `claude-sonnet-4-6`; only the fallback's final result is returned. There is no
-second retry. Otherwise the wrapper exits `10` quota · `11` auth · `12` timeout · `13`
+**Structured failures and quota control.** On a failed, empty, or timed-out Gemini run,
+the wrapper force-checks both Agy Gemini quota windows. Either the 5h or 7d window at or
+below **2% remaining** is treated as depleted even when Agy has not reported an exact
+zero. It exits `10` with `QUOTA_DECISION_REQUIRED`; it never changes model automatically.
+Ask the user in English whether to (1) kill active Agy workers that are no longer
+progressing and continue with Claude Sonnet 4.6, or (2) keep them alive and wait while
+both quota windows are checked every 10 minutes. Record only the explicit answer with
+`agy-quota --decision sonnet|wait`. For option 1, cancel host-managed stalled tasks and
+run `agy-job cancel-all` for plugin-managed jobs, then retry; the wrapper uses exact model
+`claude-sonnet-4-6` until Gemini recovers. For option 2, use the host scheduling/wakeup
+facility for `agy-quota --force` every 10 minutes, do not kill workers or start Sonnet,
+and resume Gemini only when **both** windows exceed 2%. Stop after one Sonnet failure.
+
+The quota tracker checks both windows on the same cadence and emits one English advisory
+when remaining quota crosses 75%, 50%, 25%, or 10%, for example: `Agy Gemini 7d quota
+has only 50% remaining.` Append newly emitted advisories briefly to the user-facing
+message; do not repeat a threshold until that quota window resets or recovers above it.
+
+Other wrapper exits are `11` auth · `12` timeout · `13`
 agy-missing · `14` model-unavailable (a `--model` / `tier_*` / `default_model` name not in
 `agy models` — agy ≥ 1.1.2 hard-fails instead of silently downgrading) · `15`
 permission-denied (a tool needed permission headless — BOTH agy 1.1.3's soft deny and

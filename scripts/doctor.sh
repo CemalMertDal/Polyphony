@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# doctor.sh — read-only health check for the "Antigravity for Claude Code" plugin.
+# doctor.sh — read-only health check for Polyphony.
 # Verifies the agy CLI is installed + authenticated and the plugin is wired up.
 #
 set -uo pipefail
@@ -359,7 +359,7 @@ agy_available() {
     { [ -n "${LOCALAPPDATA:-}" ] && [ -f "$LOCALAPPDATA/agy/bin/agy.exe" ]; }
 }
 
-echo "Antigravity for Claude Code and Codex — doctor"
+echo "Polyphony — doctor"
 
 if command -v claude >/dev/null 2>&1; then
   ok "Claude Code found: $(command -v claude)"
@@ -575,7 +575,7 @@ done
 
 # 4b2. bin/ entrypoints executable (added to the Bash-tool PATH; commands/skills call
 #      these bare names — $CLAUDE_PLUGIN_ROOT is not exported to model-run Bash, issue #11)
-for b in agy-delegate agy-job agy-cost-compare agy-doctor cloud-debug agy-trace measure-session agy-media agy-review agy-scout; do
+for b in agy-delegate agy-job agy-cost-compare agy-doctor cloud-debug agy-trace measure-session agy-media agy-review agy-scout agy-quota; do
   if [ -x "$ROOT/bin/$b" ]; then ok "bin/$b executable"; else
     bad "bin/$b not executable"; info "fix: chmod +x \"$ROOT/bin/$b\""
   fi

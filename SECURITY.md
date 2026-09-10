@@ -8,7 +8,7 @@ security reports are genuinely appreciated.
 
 **Preferred:** use GitHub's private vulnerability reporting —
 **Security → Report a vulnerability** on this repository
-(https://github.com/GryAsl/antigravity-for-claude-code-and-codex/security/advisories/new).
+(https://github.com/GryAsl/Polyphony/security/advisories/new).
 This keeps details private until a fix is available.
 
 If that isn't available to you, open a normal issue describing the impact and a
@@ -38,5 +38,5 @@ do), and a **non-destructive** proof-of-concept (exit codes / policy decisions, 
 ## Supported versions
 
 Fixes land on the latest release. Update with
-`/plugin marketplace update antigravity-for-claude-code-and-codex` and `/reload-plugins`; the
+`/plugin marketplace update polyphony` and `/reload-plugins`; the
 `version` in `.claude-plugin/plugin.json` is what marketplace update recognizes.

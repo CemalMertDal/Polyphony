@@ -15,7 +15,7 @@ import tempfile
 
 
 AGY_COMMAND = re.compile(
-    r"(?<![\w-])agy(?:-(?:scout|delegate|review|job|bridge|doctor|trace))?(?![\w-])",
+    r"(?<![\w-])agy(?:-(?:scout|delegate|review|job|bridge|doctor|trace|quota))?(?![\w-])",
     re.IGNORECASE,
 )
 
@@ -39,7 +39,7 @@ REMINDERS = {
     ),
     "implementation": (
         "dosya veya kod değişikliği yapıyorsun",
-        "işin karmaşıklığına göre `--tier flash-medium` veya `--tier flash` seçilmiş, sınırları ve kabul ölçütleri belirlenmiş `agy-delegate` worker'ı",
+        "varsayılan High `--tier flash` ile, yalnız açıkça basit işler için seçilebilen `--tier flash-medium` ile sınırları ve kabul ölçütleri belirlenmiş bir `agy-delegate` worker'ı",
     ),
     "review": (
         "diff, değişiklik veya kod incelemesi yapıyorsun",
@@ -107,6 +107,62 @@ def _write_state(path, state):
         os.replace(temporary, path)
     except Exception:
         pass
+
+
+def _quota_state_path():
+    configured = os.environ.get("AGY_QUOTA_STATE_DIR")
+    root = Path(configured).expanduser() if configured else Path.home() / ".antigravity-quota"
+    return root / "state.json"
+
+
+def _read_quota_state():
+    try:
+        state = json.loads(_quota_state_path().read_text(encoding="utf-8"))
+        if isinstance(state, dict):
+            return state
+    except Exception:
+        pass
+    return {}
+
+
+def _quota_context():
+    state = _read_quota_state()
+    if not state.get("depleted"):
+        return ""
+    decision = state.get("decision")
+    if decision == "sonnet":
+        return (
+            "[Agy quota] The user approved the Sonnet fallback. Cancel only active Agy workers "
+            "that are no longer progressing (including host-managed background tasks and, when "
+            "applicable, `agy-job cancel-all`), then retry the interrupted work. The wrapper will "
+            "route Gemini calls to Claude Sonnet 4.6 until both Gemini quota windows recover."
+        )
+    if decision == "wait":
+        return (
+            "[Agy quota] The user chose to wait. Do not kill active Agy workers and do not start "
+            "Sonnet. Use the host's scheduling/wakeup facility to run `agy-quota --force` (or the "
+            "Codex quota check tool with force=true) every 10 minutes, checking both the 5h and 7d "
+            "Gemini windows. Stop monitoring and resume Gemini only after both are above 2%."
+        )
+    return (
+        "[Agy quota] Agy Gemini quota is depleted (the 5h or 7d window is at or below 2%). "
+        "Before killing workers, waiting, or using another model, ask the user exactly one choice: "
+        "Would you like me to (1) kill any active Agy workers that are no longer progressing and "
+        "continue with Claude Sonnet 4.6, or (2) keep the workers alive and wait for the 5h/7d "
+        "quota to reset while I check both quotas every 10 minutes? Record only the user's explicit "
+        "choice with `agy-quota --decision sonnet|wait` (or the Codex quota choice tool)."
+    )
+
+
+def _emit_context(event, context):
+    if not context:
+        return
+    print(json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": event,
+            "additionalContext": context,
+        }
+    }))
 
 
 def _text(tool_input):
@@ -234,6 +290,7 @@ def main():
 
     if event == "UserPromptSubmit":
         _write_state(state_path, {"warned": []})
+        _emit_context(event, _quota_context())
         return
     if event != "PreToolUse":
         return
@@ -241,6 +298,25 @@ def main():
     tool_name = str(data.get("tool_name") or "")
     tool_input = data.get("tool_input") or {}
     if not isinstance(tool_input, dict):
+        return
+
+    quota_context = _quota_context()
+    lowered_name = tool_name.lower()
+    payload = _text(tool_input)
+    quota_tool = (
+        lowered_name == "quota"
+        or lowered_name.endswith("__quota")
+        or lowered_name.endswith(".quota")
+    )
+    recording_choice = bool(
+        (AGY_COMMAND.search(payload) and "--decision" in payload)
+        or (quota_tool and tool_input.get("action") in {"choose_sonnet", "choose_wait", "clear"})
+    )
+    asking_user = lowered_name in {"askuserquestion", "request_user_input"}
+    if recording_choice:
+        return
+    if quota_context and not recording_choice and not asking_user:
+        _emit_context(event, quota_context)
         return
 
     category = _classify(tool_name, tool_input)

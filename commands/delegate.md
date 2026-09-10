@@ -9,10 +9,11 @@ following the `antigravity` skill's **Cost discipline** and **Verification gates
 Task: $ARGUMENTS
 
 Do this:
-1. Deliberately pick `flash-medium` for simple/routine/mechanical work or `flash`
-   (High) for complex reasoning, architecture, concurrency/security, ambiguous
-   multi-file behavior, difficult debugging, adversarial review, or a materially
-   incomplete Medium result. Both track the newest Gemini Flash family. Reserve
+1. Default to `flash` (High). You may explicitly pick `flash-medium` for a clearly
+   simple/routine/mechanical task when that is beneficial. Use High for complex reasoning,
+   architecture, concurrency/security, ambiguous multi-file behavior, difficult debugging,
+   adversarial review, or a materially incomplete Medium result. Both track the newest
+   Gemini Flash family. Reserve
    `pro` for exceptional escalation. If the task needs the repo,
    add `--dir <repo-root>` so agy reads the real files (don't paste them into context).
    **If the task WRITES files or uses tools** (web / Vertex AI Search / terminal), it needs
@@ -47,9 +48,11 @@ Do this:
 Small tasks are explicitly eligible. Do not refuse solely because a task is below the
 cost break-even; use one precise synchronous Flash delegation and avoid needless fan-out.
 
-If Gemini Flash exhausts quota, the wrapper automatically repeats the same task once
-with `claude-sonnet-4-6`. It preserves execution settings, starts a fresh model
-conversation, and returns the Sonnet attempt's exact result without another fallback.
+If a Gemini run fails, the wrapper checks both 5h and 7d quota windows. Either window at
+or below 2% is depleted and returns exit 10. Ask the user whether to kill stalled workers
+and continue with Claude Sonnet 4.6, or keep them alive and check both windows every 10
+minutes. Never select either path automatically. Record the explicit answer with
+`agy-quota --decision sonnet|wait`; the wrapper routes to Sonnet only after approval.
 
 **Long task, interactive session?** A sync delegation can also hit Claude Code's ~2-min
 Bash-tool limit — start it in the background and keep working (this also keeps the prompt

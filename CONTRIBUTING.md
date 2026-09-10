@@ -4,7 +4,7 @@ Thanks for your interest! This is an early-stage, MIT-licensed community project
 issues, PRs, and even a ⭐ all genuinely help shape where it goes.
 
 **Not sure where to start?** Look for the
-[`good first issue`](https://github.com/GryAsl/antigravity-for-claude-code-and-codex/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+[`good first issue`](https://github.com/GryAsl/Polyphony/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
 label.
 
 ## What's especially welcome
@@ -20,8 +20,8 @@ You need the [Antigravity CLI](https://antigravity.google/docs/cli-using) (`agy`
 authenticated — `agy models` should list Gemini models) and Claude Code.
 
 ```bash
-git clone https://github.com/GryAsl/antigravity-for-claude-code-and-codex ~/antigravity-for-claude-code-and-codex
-cd ~/antigravity-for-claude-code-and-codex
+git clone https://github.com/GryAsl/Polyphony ~/Polyphony
+cd ~/Polyphony
 
 # load the plugin live from your working tree ($CLAUDE_PLUGIN_ROOT resolves):
 claude --plugin-dir ~/antigravity-for-claude-code

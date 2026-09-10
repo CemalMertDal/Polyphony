@@ -1,15 +1,16 @@
 {
   "name": "antigravity",
-  "version": "0.29.0",
-  "description": "Run the Antigravity CLI (Gemini) as a collaborating worker from Claude Code and Codex, including native Windows ConPTY support.",
+  "version": "0.30.0",
+  "description": "Polyphony: multi-model orchestration for Claude Code and Codex through Antigravity, with native Windows ConPTY support.",
   "author": {
     "name": "GryAsl"
   },
-  "homepage": "https://github.com/GryAsl/antigravity-for-claude-code-and-codex",
-  "repository": "https://github.com/GryAsl/antigravity-for-claude-code-and-codex",
+  "homepage": "https://github.com/GryAsl/Polyphony",
+  "repository": "https://github.com/GryAsl/Polyphony",
   "license": "MIT",
   "keywords": [
     "antigravity",
+    "polyphony",
     "gemini",
     "multi-agent",
     "orchestration",
@@ -27,8 +28,8 @@
     "default_tier": {
       "type": "string",
       "title": "Default Antigravity tier",
-      "description": "Tier used when --tier is omitted: flash-medium (latest Gemini Flash Medium, routine default), flash (latest Gemini Flash High, complex work), or pro (exceptional escalation).",
-      "default": "flash-medium"
+      "description": "Tier used when --tier is omitted: flash (latest Gemini Flash High, default), flash-medium (explicit Medium option for clearly simple work), or pro (exceptional escalation).",
+      "default": "flash"
     },
     "timeout": {
       "type": "string",
@@ -51,7 +52,7 @@
     "coding_policy": {
       "type": "string",
       "title": "Inject routing policy at session start",
-      "description": "When on, SessionStart tells Claude to select latest Flash Medium for routine work or latest Flash High for complex work while keeping prompts scoped and context lean. Set to off/false/0/no to suppress.",
+      "description": "When on, SessionStart tells Claude to default to latest Flash High while allowing explicit Medium for clearly simple work, keeping prompts scoped and context lean. Set to off/false/0/no to suppress.",
       "default": "on"
     },
     "default_model": {
@@ -89,6 +90,18 @@
       "title": "Digest-size warning threshold (chars)",
       "description": "agy-delegate warns on stderr when a reply exceeds this many characters — a raw dump instead of the digest the cost discipline calls for. Empty = 8000. Set 0 to disable.",
       "default": ""
+    },
+    "quota_depletion_threshold": {
+      "type": "string",
+      "title": "Gemini quota depletion threshold (%)",
+      "description": "Treat either Gemini 5h or 7d remaining quota at or below this percentage as depleted. Default: 2.",
+      "default": "2"
+    },
+    "quota_check_interval_seconds": {
+      "type": "string",
+      "title": "Gemini quota check cache (seconds)",
+      "description": "Maximum age of a cached 5h/7d quota check. Default: 600 (10 minutes).",
+      "default": "600"
     },
     "delegation_nudge": {
       "type": "string",

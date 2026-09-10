@@ -11,6 +11,7 @@
 #   agy-job.sh status <id>                             # running | done(rc) | failed
 #   agy-job.sh result <id>                             # print stdout (+rc) when finished
 #   agy-job.sh cancel <id>                             # terminate a running job
+#   agy-job.sh cancel-all                              # terminate all plugin-managed running jobs
 #
 # Jobs live under ${ANTIGRAVITY_JOBS:-~/.antigravity-jobs}/<id>/ (out, err, rc, meta).
 #
@@ -51,7 +52,7 @@ rc_label() {
     0)  echo 'ok' ;;
     2)  echo 'agy failed' ;;
     3)  echo 'empty output' ;;
-    10) echo 'QUOTA — retry later with --continue' ;;
+    10) echo 'QUOTA — user decision or 10-minute waiting check required' ;;
     11) echo 'AUTH required — run `agy` once interactively' ;;
     12) echo 'TIMEOUT — raise --timeout or narrow scope' ;;
     13) echo 'agy MISSING — install the Antigravity CLI' ;;
@@ -61,6 +62,18 @@ rc_label() {
     16) echo 'Windows ConPTY bridge unavailable — check Python, vendored bridge, and pywinpty' ;;
     *)  echo 'error' ;;
   esac
+}
+
+cancel_job() {
+  local jd="$1" pid
+  pid="$(cat "$jd/pid" 2>/dev/null || true)"
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    pkill -P "$pid" 2>/dev/null || true   # children (agy) first
+    kill "$pid" 2>/dev/null || true
+    echo "cancelled $(basename "$jd")"
+    return 0
+  fi
+  return 1
 }
 
 cmd="${1:-}"; shift || true
@@ -110,16 +123,20 @@ case "$cmd" in
     ;;
   cancel)
     jd="$(jobdir "${1:-}")"
-    pid="$(cat "$jd/pid" 2>/dev/null || true)"
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-      pkill -P "$pid" 2>/dev/null || true   # children (agy) first
-      kill "$pid" 2>/dev/null || true
-      echo "cancelled $(basename "$jd")"
-    else
+    if ! cancel_job "$jd"; then
       echo "not running"
     fi
     ;;
+  cancel-all)
+    [ -d "$REG" ] || { echo "no running plugin-managed jobs"; exit 0; }
+    cancelled=0
+    for jd in "$REG"/*/; do
+      [ -d "$jd" ] || continue
+      if cancel_job "$jd"; then cancelled=$((cancelled+1)); fi
+    done
+    [ "$cancelled" -gt 0 ] || echo "no running plugin-managed jobs"
+    ;;
   ""|-h|--help|help)
     sed -n '/^# Usage:/,/^# Jobs live/p' "$0" | sed 's/^# \{0,1\}//' ;;
-  *) die "unknown subcommand '$cmd' (start|list|status|result|cancel)" ;;
+  *) die "unknown subcommand '$cmd' (start|list|status|result|cancel|cancel-all)" ;;
 esac

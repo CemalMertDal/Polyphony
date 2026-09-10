@@ -1,17 +1,17 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
-  "name": "antigravity-for-claude-code-and-codex",
-  "description": "Claude Code and Codex orchestration through Antigravity, with native Windows ConPTY support.",
+  "name": "polyphony",
+  "description": "Polyphony multi-model orchestration for Claude Code and Codex, with native Windows ConPTY support.",
   "owner": {
     "name": "GryAsl"
   },
   "plugins": [
     {
       "name": "antigravity",
-      "description": "Use Antigravity workers from Claude Code or Codex, with native Windows support through the vendored ConPTY bridge.",
+      "description": "Use Polyphony to orchestrate Antigravity workers from Claude Code or Codex, with native Windows support through the vendored ConPTY bridge.",
       "source": "./",
       "category": "ai",
-      "keywords": ["antigravity", "gemini", "claude-code", "codex", "multi-agent", "sdlc", "model-routing", "windows", "conpty"]
+      "keywords": ["polyphony", "antigravity", "gemini", "claude-code", "codex", "multi-agent", "sdlc", "model-routing", "windows", "conpty"]
     }
   ]
 }

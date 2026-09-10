@@ -1,6 +1,6 @@
 ---
 name: plugin-review
-description: Review criteria for the Antigravity for Claude Code plugin — a bash + markdown Claude Code plugin that delegates work to Google's Antigravity CLI (`agy`).
+description: Review criteria for Polyphony — a Bash, Markdown, and Python plugin that delegates work from Claude Code and Codex to Google's Antigravity CLI (`agy`).
 ---
 
 # What this repository is

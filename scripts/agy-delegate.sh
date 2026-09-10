@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # agy-delegate.sh — robust headless wrapper around the Antigravity CLI (`agy`).
-# Part of the "Antigravity for Claude Code" plugin.
+# Part of Polyphony.
 #
 # Purpose: let Claude Code (the orchestrator) hand a single, well-scoped subtask
 # to an Antigravity (Gemini) agent via `agy --print`, and get clean text back on
@@ -20,7 +20,7 @@
 #   echo "long prompt" | agy-delegate.sh [options] -      # read prompt from stdin
 #
 # Options:
-#   -t, --tier <flash-medium|flash|pro>  Model tier (default: flash-medium)
+#   -t, --tier <flash-medium|flash|pro>  Model tier (default: flash / High)
 #   -d, --dir  <path>                Add a workspace dir (repeatable)
 #       --timeout <dur>              Print-mode timeout, e.g. 45m (default: 30m)
 #       --idle-timeout <secs>        Native Windows no-output timeout. Default: just
@@ -49,7 +49,7 @@
 #
 # On a classifiable failure, a machine-readable line is printed to stderr so
 # orchestrators (e.g. agy-job.sh) can react without scraping prose:
-#   AGY_SIGNAL {"status":"QUOTA_EXHAUSTED","reason":"...","model":"...","retry":"--continue"}
+#   AGY_SIGNAL {"status":"QUOTA_DECISION_REQUIRED","reason":"...","model":"...","retry":"ask-user"}
 #
 # AGY_USAGE / AGY_SIGNAL go to stderr. If you are MEASURING cost, also set
 # AGY_USAGE_LOG=/path/to/log: stderr is easily lost (`2>&1 | tail -N` keeps the
@@ -66,7 +66,7 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
-TIER="${CLAUDE_PLUGIN_OPTION_DEFAULT_TIER:-flash-medium}"
+TIER="${CLAUDE_PLUGIN_OPTION_DEFAULT_TIER:-flash}"
 TIMEOUT="${CLAUDE_PLUGIN_OPTION_TIMEOUT:-30m}"
 IDLE_TIMEOUT="${CLAUDE_PLUGIN_OPTION_IDLE_TIMEOUT:-}"
 IDLE_TIMEOUT_EXPLICIT=0
@@ -113,10 +113,11 @@ tee_usage() { # $1 = the full line, already formatted
 }
 
 # Emit a one-line machine-readable failure signal to stderr. $1=status $2=reason.
-# QUOTA failures advertise `--continue` so a caller knows how to resume the session.
+# Quota decisions are owned by the user, not by an automatic model fallback.
 signal() {
   local status="$1" reason="$2" retry="" line
-  [ "$status" = "QUOTA_EXHAUSTED" ] && retry="--continue"
+  [ "$status" = "QUOTA_DECISION_REQUIRED" ] && retry="ask-user"
+  [ "$status" = "QUOTA_WAITING" ] && retry="10m"
   # sanitize reason so the JSON stays single-line and valid (no quotes/backslashes/newlines)
   reason="$(printf '%s' "$reason" | tr '\n\r\t' '   ' | tr -d '"\\' | cut -c1-200)"
   line="$(printf 'AGY_SIGNAL {"status":"%s","reason":"%s","model":"%s","retry":"%s"}' \
@@ -202,39 +203,110 @@ is_gemini_flash_model() {
   esac
 }
 
-# One-shot Claude Sonnet 4.6 fallback when a Gemini Flash invocation hits quota.
-attempt_fallback() {
-  [ "${_AGY_DELEGATE_FALLBACK:-0}" != 1 ] || return 1
-  is_gemini_flash_model "$MODEL" || return 1
+is_gemini_model() {
+  local m
+  m="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')"
+  case "$m" in *gemini*) return 0 ;; *) return 1 ;; esac
+}
 
-  local fallback_notice
-  fallback_notice="$(printf 'AGY_FALLBACK {"reason":"QUOTA_EXHAUSTED","from":"%s","to":"claude-sonnet-4-6","attempt":1}' "$MODEL")"
-  printf '%s\n' "$fallback_notice" >&2
-  tee_usage "$fallback_notice"
-  local fallback_args=(--model "claude-sonnet-4-6" --timeout "$TIMEOUT")
-  local d
-  for d in "${ADD_DIRS[@]:-}"; do
-    [ -n "$d" ] && fallback_args+=(--dir "$d")
-  done
-  if [ "$IDLE_TIMEOUT_EXPLICIT" -eq 1 ]; then
-    fallback_args+=(--idle-timeout "$IDLE_TIMEOUT")
+# Run the zero-token /usage quota helper. Tests may replace it with one executable.
+quota_run() {
+  if [ -n "${AGY_QUOTA_COMMAND:-}" ]; then
+    "$AGY_QUOTA_COMMAND" "$@"
+    return $?
   fi
-  if [ "$YOLO" -eq 1 ]; then
-    fallback_args+=(--yolo)
+  if resolve_bridge_python; then
+    "${BRIDGE_PY[@]}" "$HERE/agy-quota.py" "$@"
+    return $?
   fi
-  if [ "$SANDBOX" -eq 1 ]; then
-    fallback_args+=(--sandbox)
+  return 2
+}
+
+quota_status_from() { printf '%s' "$1" | sed -n 's/^AGY_QUOTA .*"status":"\([^"]*\)".*/\1/p'; }
+quota_decision_from() { printf '%s' "$1" | sed -n 's/^AGY_QUOTA .*"decision":"\([^"]*\)".*/\1/p'; }
+
+quota_decision_required() { # $1 = AGY_QUOTA line (possibly empty)
+  local quota_line="${1:-}"
+  if [ -n "$quota_line" ]; then
+    printf '%s\n' "$quota_line" >&2
+    tee_usage "$quota_line"
   fi
-  if [ "$DIGEST" -eq 1 ]; then
-    fallback_args+=(--digest)
+  echo 'agy-delegate: Agy Gemini quota is depleted. Ask the user before taking any fallback action: "Agy Gemini quota is depleted. Would you like me to (1) kill any active Agy workers that are no longer progressing and continue with Claude Sonnet 4.6, or (2) keep the workers alive and wait for the 5h/7d quota to reset while I check both quotas every 10 minutes?"' >&2
+  signal QUOTA_DECISION_REQUIRED "Gemini 5h or 7d quota is exhausted / at or below 2%; user must choose Sonnet or 10-minute monitoring"
+  exit 10
+}
+
+quota_waiting() { # $1 = AGY_QUOTA line
+  if [ -n "${1:-}" ]; then
+    printf '%s\n' "$1" >&2
+    tee_usage "$1"
   fi
-  if [ -n "$MODE" ]; then
-    fallback_args+=(--mode "$MODE")
-  fi
+  echo "agy-delegate: user selected quota waiting; do not kill workers or start Sonnet. Recheck both Gemini quota windows every 10 minutes." >&2
+  signal QUOTA_WAITING "waiting for Gemini 5h/7d quota recovery by user choice"
+  exit 10
+}
+
+# A cached depleted state prevents repeated doomed Gemini launches. Only an explicit
+# user decision recorded by `agy-quota --decision sonnet` permits the model switch.
+quota_preflight() {
+  [ "${AGY_QUOTA_PROBE:-0}" != 1 ] || return 0
+  [ "$PRINT_CMD" -ne 1 ] || return 0
+  is_gemini_model "$MODEL" || return 0
+  local quota_line status decision notice
   set +e
-  _AGY_DELEGATE_FALLBACK=1 "$HERE/agy-delegate.sh" "${fallback_args[@]}" -- "$ORIG_PROMPT"
-  local fallback_rc=$?
-  exit "$fallback_rc"
+  # A normal (cached) check refreshes after ten minutes. This makes a previously
+  # approved Sonnet fallback self-clear as soon as both Gemini windows recover.
+  quota_line="$(quota_run --json 2>/dev/null)"
+  set -e
+  status="$(quota_status_from "$quota_line")"
+  [ "$status" = DEPLETED ] || return 0
+  decision="$(quota_decision_from "$quota_line")"
+  case "$decision" in
+    sonnet)
+      notice="$(printf 'AGY_FALLBACK {"reason":"USER_APPROVED_QUOTA_FALLBACK","from":"%s","to":"claude-sonnet-4-6"}' "$MODEL")"
+      printf '%s\n' "$quota_line" >&2
+      printf '%s\n' "$notice" >&2
+      tee_usage "$quota_line"
+      tee_usage "$notice"
+      MODEL="claude-sonnet-4-6"
+      ;;
+    wait) quota_waiting "$quota_line" ;;
+    *) quota_decision_required "$quota_line" ;;
+  esac
+}
+
+# On any problematic Gemini run, force-refresh both windows. A <=2% window upgrades
+# timeout/empty/generic failures to the quota decision state. An explicit 429/quota
+# diagnostic enters that state even if the quota endpoint is temporarily unavailable.
+quota_failure_check() { # $1 = 1 for explicit quota diagnostic, otherwise 0
+  [ "${AGY_QUOTA_PROBE:-0}" != 1 ] || return 1
+  is_gemini_model "$MODEL" || return 1
+  local explicit="${1:-0}" quota_line status
+  set +e
+  quota_line="$(quota_run --force --json 2>/dev/null)"
+  set -e
+  status="$(quota_status_from "$quota_line")"
+  [ "$status" = DEPLETED ] && quota_decision_required "$quota_line"
+  if [ "$explicit" = 1 ]; then
+    set +e
+    quota_line="$(quota_run --mark-depleted --json 2>/dev/null)"
+    set -e
+    quota_decision_required "$quota_line"
+  fi
+  return 1
+}
+
+quota_after_success() {
+  [ "${AGY_QUOTA_PROBE:-0}" != 1 ] || return 0
+  is_gemini_model "$MODEL" || return 0
+  local notices
+  set +e
+  notices="$(quota_run --alerts-only 2>/dev/null)"
+  set -e
+  if [ -n "$notices" ]; then
+    printf '%s\n' "$notices" >&2
+    while IFS= read -r line; do [ -z "$line" ] || tee_usage "$line"; done <<<"$notices"
+  fi
 }
 
 # True when running under WSL (Windows Subsystem for Linux).
@@ -340,7 +412,6 @@ while [ $# -gt 0 ]; do
 done
 
 [ -n "$PROMPT" ] || die "no prompt given (pass a string, or '-' to read stdin)"
-ORIG_PROMPT="$PROMPT"
 # --print-command is a dry run (introspection), so it doesn't require agy on PATH.
 # On Windows the bridge also honours AGY_PATH and agy's default install dirs.
 if [ "$PRINT_CMD" -ne 1 ] && ! command -v agy >/dev/null 2>&1 \
@@ -362,16 +433,18 @@ if [ -z "$MODEL" ]; then
     # default tier from userConfig; a bad value shouldn't make every call die.
     case "$TIER" in
       flash-medium|flash|pro) ;;
-      *) echo "agy-delegate: invalid default tier '$TIER' (set CLAUDE_PLUGIN_OPTION_DEFAULT_TIER to flash-medium|flash|pro); using flash-medium" >&2; TIER="flash-medium" ;;
+      *) echo "agy-delegate: invalid default tier '$TIER' (set CLAUDE_PLUGIN_OPTION_DEFAULT_TIER to flash-medium|flash|pro); using flash" >&2; TIER="flash" ;;
     esac
     MODEL="$(model_for_tier "$TIER")"
   fi
 fi
 
+quota_preflight
+
 # WSL gotcha: agy reads --add-dir over the /mnt/* Windows mount via a slow 9p bridge,
 # so even trivial calls can take 20s+. Warn (don't fail); the fix is to move the repo
 # into the WSL Linux filesystem (~).
-if on_wsl && [ "${_AGY_DELEGATE_FALLBACK:-0}" != 1 ]; then
+if on_wsl && [ "${AGY_QUOTA_PROBE:-0}" != 1 ]; then
   for d in "${ADD_DIRS[@]:-}"; do
     [ -n "$d" ] || continue
     case "$d" in
@@ -401,7 +474,7 @@ fi
 # Best-effort heuristic; warn only. --print-command (dry run) is exempt.
 # Lean read-only wrappers set AGY_DELEGATE_READ_ONLY=1 because their payload may quote
 # words such as "implement" from a diff even though agy receives no repository/tools.
-if [ "$YOLO" -eq 0 ] && [ "$PRINT_CMD" -ne 1 ] && [ "${AGY_DELEGATE_READ_ONLY:-0}" != 1 ] && [ "${_AGY_DELEGATE_FALLBACK:-0}" != 1 ]; then
+if [ "$YOLO" -eq 0 ] && [ "$PRINT_CMD" -ne 1 ] && [ "${AGY_DELEGATE_READ_ONLY:-0}" != 1 ] && [ "${AGY_QUOTA_PROBE:-0}" != 1 ]; then
   shopt -s nocasematch
   case "$PROMPT" in
     *implement*|*scaffold*|*migrate*|*refactor*|*"write the file"*|*"create the file"*|*"edit the file"*)
@@ -691,6 +764,7 @@ if on_windows_native; then
     12)
       [[ "$OUT" = *[!$' \t\n\r']* ]] && printf '%s\n' "$OUT"
       [ -s "$ERR" ] && cat "$ERR" >&2
+      quota_failure_check 0 || true
       signal TIMEOUT "Windows ConPTY bridge timeout"
       exit 12 ;;
     13)
@@ -703,6 +777,7 @@ if on_windows_native; then
       exit 16 ;;
     3)
       [ -s "$ERR" ] && cat "$ERR" >&2
+      quota_failure_check 0 || true
       echo "agy-delegate: agy returned empty output through ConPTY (model='$MODEL')" >&2
       exit 3 ;;
   esac
@@ -712,6 +787,7 @@ fi
 # kill agy. Treat that as our structured TIMEOUT (exit 12), not a generic failure.
 if ! on_windows_native && [ -n "$TO_CMD" ] && { [ $RC -eq 124 ] || [ $RC -eq 137 ]; }; then
   echo "agy-delegate: agy hit the wall-clock guard (${TO_SECS}s) and was terminated — likely a headless/no-TTY hang." >&2
+  quota_failure_check 0 || true
   signal TIMEOUT "agy wall-clock guard fired after ${TO_SECS}s (headless/no-TTY hang?)"
   exit 12
 fi
@@ -730,10 +806,11 @@ $blob"
   case "$blob" in
     *quota*|*"rate limit"*|*"resource exhausted"*)
       shopt -u nocasematch
-      attempt_fallback || true
+      quota_failure_check 1 || true
       ;;
     *)
-      shopt -u nocasematch ;;
+      shopt -u nocasematch
+      quota_failure_check 0 || true ;;
   esac
 
   echo "agy-delegate: agy exited $RC" >&2
@@ -750,7 +827,7 @@ $blob"
     *"permission that headless"*|*"dangerously-skip-permissions"*)
       shopt -u nocasematch; permission_denied shown ;;
     *quota*|*"rate limit"*|*"resource exhausted"*)
-      shopt -u nocasematch; signal QUOTA_EXHAUSTED "agy quota / rate limit"; exit 10 ;;
+      shopt -u nocasematch; signal QUOTA_EXHAUSTED "non-Gemini agy quota / rate limit"; exit 10 ;;
     *unauthenticated*|*unauthorized*|*"sign in"*|*"please authenticate"*|*reauth*)
       shopt -u nocasematch; signal AUTH_REQUIRED "agy not authenticated — run \`agy\` once"; exit 11 ;;
     *"timed out"*|*"deadline exceeded"*|*"print-timeout"*)
@@ -780,6 +857,7 @@ if [[ "$OUT" != *[!$' \t\n\r']* ]]; then   # same glob as above, not the quadrat
       permission_denied ;;
   esac
   shopt -u nocasematch
+  quota_failure_check 0 || true
   echo "agy-delegate: agy returned empty output (model='$MODEL')" >&2
   exit 3
 fi
@@ -793,5 +871,7 @@ case "$WARN_CHARS" in (*[!0-9]*|'') WARN_CHARS=8000 ;; esac
 if [ "$WARN_CHARS" -gt 0 ] && [ "${#OUT}" -gt "$WARN_CHARS" ]; then
   echo "agy-delegate: note: output is ${#OUT} chars (> ${WARN_CHARS}) — that looks like a raw dump, not a digest. Don't ingest this into the conductor's context: re-run with --digest, or have agy summarize it first. (plugin option digest_warn_chars tunes this; 0 disables.)" >&2
 fi
+
+quota_after_success
 
 printf '%s\n' "$OUT"

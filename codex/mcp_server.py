@@ -41,7 +41,7 @@ DIRECTORY = {"type": "string", "description": "Repository/workspace directory."}
 TOOLS = [
     {
         "name": "delegate",
-        "description": "Run an Agy worker. Choose flash-medium for routine work or flash (High) for complex work; both track the newest Flash family.",
+        "description": "Run an Agy worker. Defaults to flash (High); flash-medium is an explicit option for clearly simple work. Both track the newest Flash family.",
         "inputSchema": _object(
             {
                 "prompt": {"type": "string"},
@@ -63,7 +63,7 @@ TOOLS = [
     },
     {
         "name": "scout",
-        "description": "Run a compact read-only Gemini Flash scout (Medium by default; High is selectable).",
+        "description": "Run a compact read-only Gemini Flash scout. The shared delegate defaults to High; Medium is explicitly selectable.",
         "inputSchema": _object(
             {"question": {"type": "string"}, "directory": DIRECTORY, "tier": {"type": "string", "enum": ["flash-medium", "flash"]}, "timeout": DURATION},
             ["question"],
@@ -122,7 +122,7 @@ TOOLS = [
         "description": "Start, list, inspect, collect, or cancel an agy-job background task.",
         "inputSchema": _object(
             {
-                "action": {"type": "string", "enum": ["start", "list", "status", "result", "cancel"]},
+                "action": {"type": "string", "enum": ["start", "list", "status", "result", "cancel", "cancel_all"]},
                 "job_id": {"type": "string"},
                 "prompt": {"type": "string"},
                 "directory": DIRECTORY,
@@ -130,6 +130,20 @@ TOOLS = [
                 "timeout": DURATION,
                 "yolo": {"type": "boolean"},
                 "digest": {"type": "boolean"},
+            },
+            ["action"],
+        ),
+    },
+    {
+        "name": "quota",
+        "description": "Check both Gemini 5h/7d quotas or record the user's explicit Sonnet/wait choice after depletion.",
+        "inputSchema": _object(
+            {
+                "action": {
+                    "type": "string",
+                    "enum": ["check", "choose_sonnet", "choose_wait", "clear"],
+                },
+                "force": {"type": "boolean", "description": "Ignore the ten-minute cache when checking."},
             },
             ["action"],
         ),
@@ -368,7 +382,24 @@ def _dispatch(name: str, args: dict) -> dict:
             if not args.get("job_id"):
                 raise ValueError(f"job {action} requires job_id")
             argv.append(str(args["job_id"]))
+        elif action == "cancel_all":
+            argv = ["cancel-all"]
         return _run_shell("agy-job.sh", argv, _cwd(args))
+
+    if name == "quota":
+        action = str(args.get("action") or "")
+        if action == "check":
+            argv = ["--json"]
+            _switch(argv, args, "force", "--force")
+        elif action == "choose_sonnet":
+            argv = ["--decision", "sonnet", "--json"]
+        elif action == "choose_wait":
+            argv = ["--decision", "wait", "--json"]
+        elif action == "clear":
+            argv = ["--decision", "clear", "--json"]
+        else:
+            raise ValueError("quota action must be check, choose_sonnet, choose_wait, or clear")
+        return _run_python("agy-quota.py", argv)
 
     if name == "trace":
         action = str(args.get("action") or "")
@@ -462,7 +493,7 @@ def handle_request(req: dict) -> dict | None:
             "result": {
                 "protocolVersion": requested or PROTOCOL_VERSION,
                 "capabilities": {"tools": {"listChanged": False}},
-                "serverInfo": {"name": "antigravity-wrappers", "version": "0.29.0"},
+                "serverInfo": {"name": "polyphony", "version": "0.30.0"},
             },
         }
     if method == "notifications/initialized":

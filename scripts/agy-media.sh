@@ -2,7 +2,7 @@
 #
 # agy-media.sh — hand an audio / video / image file to Antigravity (`agy` / Gemini)
 # and get back a TIMESTAMPED DIGEST, with the full transcript written to a file.
-# Part of the "Antigravity for Claude Code" plugin.
+# Part of Polyphony.
 #
 # Why this exists: Claude Code can't hear audio or watch video, and adding that
 # locally means ffmpeg + a speech model. Gemini is natively multimodal, so this

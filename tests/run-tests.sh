@@ -105,6 +105,13 @@ if python3 "$HERE/test-windows-bridge.py" >/dev/null; then
 else
   echo "FAIL: Windows bridge adapter contract tests"; FAIL=$((FAIL+1))
 fi
+for focused in test-quota.py test-opportunity-hook.py test-codex-mcp.py; do
+  if python3 "$HERE/$focused" >/dev/null; then
+    echo "ok: $focused"; PASS=$((PASS+1))
+  else
+    echo "FAIL: $focused"; FAIL=$((FAIL+1))
+  fi
+done
 
 # --- stub `agy` on PATH; behavior controlled by $STUB_MODE -------------------
 mkdir -p "$TMP/bin"
@@ -179,6 +186,30 @@ esac
 STUB
 chmod +x "$TMP/bin/agy"
 
+# Keep wrapper quota checks hermetic. Individual cases select AVAILABLE/DEPLETED and
+# an already-recorded explicit user decision through environment variables.
+cat > "$TMP/bin/quota-stub" <<'STUB'
+#!/usr/bin/env bash
+status="${STUB_QUOTA_STATUS:-AVAILABLE}"
+decision="${STUB_QUOTA_DECISION:-}"
+alerts="${STUB_QUOTA_ALERTS:-}"
+case " $* " in *" --mark-depleted "*) status=DEPLETED ;; esac
+if [ "$status" = DEPLETED ]; then depleted=true; else depleted=false; fi
+payload="{\"status\":\"$status\",\"source\":\"stub\",\"depletion_threshold\":2.0,\"gemini\":{\"5h\":{\"remaining\":${STUB_QUOTA_5H:-100}},\"7d\":{\"remaining\":${STUB_QUOTA_7D:-100}}},\"decision\":${decision:+\"$decision\"},\"alerts\":[],\"checked_at\":\"2026-09-10T00:00:00Z\"}"
+[ -n "$decision" ] || payload="${payload/\"decision\":,/\"decision\":null,}"
+case " $* " in
+  *" --alerts-only "*)
+    [ -z "$alerts" ] || printf '%s\n' "$alerts"
+    [ "$status" != DEPLETED ] || printf 'AGY_QUOTA_DECISION_REQUIRED %s\n' "$payload"
+    ;;
+  *) printf 'AGY_QUOTA %s\n' "$payload" ;;
+esac
+case " $* " in *" --decision "*) exit 0 ;; esac
+[ "$status" = DEPLETED ] && exit 10
+exit 0
+STUB
+chmod +x "$TMP/bin/quota-stub"
+
 # --- stub `gcloud` on PATH; logging-read behavior controlled by $GCLOUD_MODE ----
 cat > "$TMP/bin/gcloud" <<'STUB'
 #!/usr/bin/env bash
@@ -203,6 +234,7 @@ STUB
 chmod +x "$TMP/bin/gcloud"
 
 export PATH="$TMP/bin:$PATH"
+export AGY_QUOTA_COMMAND="$TMP/bin/quota-stub"
 
 # A minimal PATH dir with common utils but deliberately NO gcloud/agy, so
 # "missing on PATH" tests stay deterministic on runners that ship gcloud in
@@ -258,7 +290,7 @@ check "stdin prompt (-) read" 0 "$rc" "-p" "$out"
 
 # structured exit codes + machine-readable signal (stderr merged into capture)
 out=$(STUB_MODE=quota "$DELEGATE" "hi" 2>&1); rc=$?
-check "agy quota -> exit 10 + signal" 10 "$rc" "QUOTA_EXHAUSTED" "$out"
+check "agy quota -> exit 10 + user-decision signal" 10 "$rc" "QUOTA_DECISION_REQUIRED" "$out"
 
 out=$(STUB_MODE=auth "$DELEGATE" "hi" 2>&1); rc=$?
 check "agy auth -> exit 11 + signal" 11 "$rc" "AUTH_REQUIRED" "$out"
@@ -360,7 +392,7 @@ out=$(STUB_JSON_CAPABLE=1 STUB_MODE=json_err_quoted "$DELEGATE" "hi" 2>&1); rc=$
 check "json mode: error containing quotes still classifies (exit 14)" 14 "$rc" "MODEL_UNAVAILABLE" "$out"
 check "json mode: quoted error yields the actionable hint" 14 "$rc" "not available on this plan" "$out"
 out=$(STUB_JSON_CAPABLE=1 STUB_MODE=json_quota "$DELEGATE" "hi" 2>&1); rc=$?
-check "json mode: structured quota error -> exit 10" 10 "$rc" "QUOTA_EXHAUSTED" "$out"
+check "json mode: structured quota error -> user decision" 10 "$rc" "QUOTA_DECISION_REQUIRED" "$out"
 # opt-out and capability fallback both take the plain-text path (no AGY_USAGE)
 err=$(STUB_JSON_CAPABLE=1 STUB_MODE=text CLAUDE_PLUGIN_OPTION_STRUCTURED_OUTPUT=off "$DELEGATE" "hi" 2>&1 >/dev/null)
 if grep -q "AGY_USAGE" <<<"$err"; then echo "FAIL: structured_output=off still used json"; FAIL=$((FAIL+1));
@@ -475,7 +507,7 @@ else echo "FAIL: idle-timeout override surface is incomplete"; FAIL=$((FAIL+1));
 
 # invalid default tier from config falls back to flash; explicit --tier typo still errors
 out=$(STUB_MODE=args CLAUDE_PLUGIN_OPTION_DEFAULT_TIER=bogus "$DELEGATE" "hi" 2>/dev/null); rc=$?
-check "invalid userConfig tier -> falls back to flash-medium" 0 "$rc" "$DEF_FLASH_MEDIUM" "$out"
+check "invalid userConfig tier -> falls back to High flash" 0 "$rc" "$DEF_FLASH" "$out"
 out=$("$DELEGATE" --tier bogus "hi" 2>/dev/null); rc=$?
 check "explicit --tier bogus -> exit 1" 1 "$rc"
 
@@ -597,79 +629,50 @@ out=$(WSL_DISTRO_NAME=Ubuntu "$DELEGATE" --dir /home/u/proj --print-command "hi"
 if grep -q "9p bridge" <<<"$out"; then echo "FAIL: slow-mount note fired for a Linux-FS --dir"; FAIL=$((FAIL+1));
 else echo "ok: no slow-mount note for a Linux-FS --dir"; PASS=$((PASS+1)); fi
 
-# --- Gemini Flash quota -> Claude Sonnet 4.6 fallback ---
-# 1. Gemini quota -> Sonnet success, advisory notice, no final QUOTA_EXHAUSTED
-out=$(STUB_MODE=flash_quota_sonnet_ok "$DELEGATE" "hello fallback" 2>&1); rc=$?
-check "Gemini quota -> Sonnet success" 0 "$rc" "SONNET_OK" "$out"
-if has "QUOTA_EXHAUSTED" "$out"; then
-  echo "FAIL: Gemini quota emitted QUOTA_EXHAUSTED before Sonnet fallback"; FAIL=$((FAIL+1));
-else echo "ok: no final QUOTA_EXHAUSTED emitted when fallback launched"; PASS=$((PASS+1)); fi
-check "machine-readable fallback notice emitted" 0 0 'AGY_FALLBACK {"reason":"QUOTA_EXHAUSTED"' "$out"
-
-# 2. exact Sonnet model slug is used
-check "exact Sonnet model slug claude-sonnet-4-6 is used" 0 "$rc" "--model claude-sonnet-4-6" "$out"
-
-# 3. relevant options and original prompt are preserved
-out=$(STUB_MODE=flash_quota_sonnet_ok "$DELEGATE" \
-  --dir "$TMP" --yolo --sandbox --mode plan --timeout 15m --idle-timeout 500 "orig prompt text" 2>&1); rc=$?
-check "fallback preserves options and original prompt" 0 "$rc" "SONNET_OK" "$out"
-check "fallback preserves --dir" 0 0 "--add-dir $TMP" "$out"
-check "fallback preserves --yolo" 0 0 "--dangerously-skip-permissions" "$out"
-check "fallback preserves --sandbox" 0 0 "--sandbox" "$out"
-check "fallback preserves --mode plan" 0 0 "--mode plan" "$out"
-check "fallback preserves --timeout" 0 0 "--print-timeout 15m" "$out"
-check "fallback preserves original prompt" 0 0 "orig prompt text" "$out"
-
-# 4. digest contract appears once
-out=$(STUB_MODE=flash_quota_sonnet_ok "$DELEGATE" --digest "test prompt" 2>&1); rc=$?
-check "fallback with --digest succeeds" 0 "$rc" "SONNET_OK" "$out"
-contract_count=$(grep -o "OUTPUT CONTRACT (digest)" <<<"$out" | wc -l | tr -d ' ')
-if [ "$contract_count" -eq 1 ]; then
-  echo "ok: digest contract appears exactly once in Sonnet prompt"; PASS=$((PASS+1));
-else echo "FAIL: digest contract count want 1 got $contract_count"; FAIL=$((FAIL+1)); fi
-
-# 5. stateful conversation flags are omitted across model change
-SUBCALL="$TMP/subcall.log"; rm -f "$SUBCALL"
-out=$(STUB_CALL_LOG="$SUBCALL" STUB_MODE=flash_quota_sonnet_ok "$DELEGATE" -c --conversation conv123 "test prompt" 2>&1); rc=$?
-check "fallback with stateful flags succeeds" 0 "$rc" "SONNET_OK" "$out"
-first_call=$(head -n 1 "$SUBCALL")
-second_call=$(tail -n 1 "$SUBCALL")
-if has "--continue" "$first_call" && has "--conversation conv123" "$first_call"; then
-  echo "ok: first invocation includes stateful flags"; PASS=$((PASS+1));
-else echo "FAIL: first invocation missing stateful flags: $first_call"; FAIL=$((FAIL+1)); fi
-if has "--continue" "$second_call" || has "--conversation" "$second_call"; then
-  echo "FAIL: fallback invocation forwarded stateful conversation flags: $second_call"; FAIL=$((FAIL+1));
-else echo "ok: fallback invocation omits stateful conversation flags"; PASS=$((PASS+1)); fi
-
-# 6. Gemini quota -> Sonnet quota stops after exactly two invocations with exit 10
+# --- User-controlled Gemini quota handling ---
 SUBCALL="$TMP/subcall.log"; rm -f "$SUBCALL"
 out=$(STUB_CALL_LOG="$SUBCALL" STUB_MODE=quota "$DELEGATE" "test prompt" 2>&1); rc=$?
-check "Gemini quota -> Sonnet quota exits 10" 10 "$rc" "QUOTA_EXHAUSTED" "$out"
+check "Gemini quota requires a user decision" 10 "$rc" "QUOTA_DECISION_REQUIRED" "$out"
+check "Gemini quota prints the two user choices" 0 0 "kill any active Agy workers" "$out"
 invocations=$(wc -l < "$SUBCALL" | tr -d ' ')
-if [ "$invocations" -eq 2 ]; then
-  echo "ok: Gemini quota -> Sonnet quota stops after exactly two invocations"; PASS=$((PASS+1));
-else echo "FAIL: invocation count want 2 got $invocations"; FAIL=$((FAIL+1)); fi
+if [ "$invocations" -eq 1 ]; then
+  echo "ok: no automatic Sonnet fallback before user approval"; PASS=$((PASS+1));
+else echo "FAIL: automatic fallback launched ($invocations model calls)"; FAIL=$((FAIL+1)); fi
 
-# 7. explicit/non-Gemini Sonnet quota does not fallback
+# A generic failure also becomes quota depletion when either forced check is <=2%.
+out=$(STUB_MODE=fail STUB_QUOTA_STATUS=DEPLETED STUB_QUOTA_5H=1.5 "$DELEGATE" "test prompt" 2>&1); rc=$?
+check "generic failure + 5h <=2% becomes quota decision" 10 "$rc" "QUOTA_DECISION_REQUIRED" "$out"
+
+# Explicit approval is read before launch and changes only the model, not task settings.
+out=$(STUB_MODE=args STUB_QUOTA_STATUS=DEPLETED STUB_QUOTA_DECISION=sonnet "$DELEGATE" \
+  --dir "$TMP" --yolo --sandbox --mode plan --timeout 15m "orig prompt text" 2>&1); rc=$?
+check "user-approved fallback runs Sonnet" 0 "$rc" "--model claude-sonnet-4-6" "$out"
+check "approved fallback is identified" 0 0 "USER_APPROVED_QUOTA_FALLBACK" "$out"
+check "approved fallback preserves directory" 0 0 "--add-dir $TMP" "$out"
+check "approved fallback preserves permission and mode" 0 0 "--dangerously-skip-permissions" "$out"
+check "approved fallback preserves original prompt" 0 0 "orig prompt text" "$out"
+
+# Waiting blocks before any worker launch and never selects Sonnet.
+SUBCALL="$TMP/subcall.log"; rm -f "$SUBCALL"
+out=$(STUB_CALL_LOG="$SUBCALL" STUB_MODE=args STUB_QUOTA_STATUS=DEPLETED \
+  STUB_QUOTA_DECISION=wait "$DELEGATE" "test prompt" 2>&1); rc=$?
+check "user-selected waiting blocks new work" 10 "$rc" "QUOTA_WAITING" "$out"
+if [ ! -s "$SUBCALL" ]; then
+  echo "ok: waiting launches neither Gemini nor Sonnet"; PASS=$((PASS+1));
+else echo "FAIL: waiting launched a model"; FAIL=$((FAIL+1)); fi
+
+# A recovered cached/live check clears depleted routing and resumes Gemini.
+out=$(STUB_MODE=args STUB_QUOTA_STATUS=AVAILABLE STUB_QUOTA_DECISION=sonnet "$DELEGATE" "test prompt" 2>&1); rc=$?
+check "recovered quota resumes default Gemini High" 0 "$rc" "$DEF_FLASH" "$out"
+
+# Non-Gemini exact models retain ordinary exit-10 classification and never route again.
 SUBCALL="$TMP/subcall.log"; rm -f "$SUBCALL"
 out=$(STUB_CALL_LOG="$SUBCALL" STUB_MODE=quota "$DELEGATE" -m "claude-sonnet-4-6" "test prompt" 2>&1); rc=$?
 check "explicit Sonnet quota exits 10" 10 "$rc" "QUOTA_EXHAUSTED" "$out"
 invocations=$(wc -l < "$SUBCALL" | tr -d ' ')
 if [ "$invocations" -eq 1 ]; then
-  echo "ok: explicit Sonnet quota does not fallback (exactly 1 invocation)"; PASS=$((PASS+1));
+  echo "ok: explicit Sonnet quota stops after one invocation"; PASS=$((PASS+1));
 else echo "FAIL: explicit Sonnet quota invocation count want 1 got $invocations"; FAIL=$((FAIL+1)); fi
-
-SUBCALL="$TMP/subcall.log"; rm -f "$SUBCALL"
-out=$(STUB_CALL_LOG="$SUBCALL" STUB_MODE=quota "$DELEGATE" --tier pro "test prompt" 2>&1); rc=$?
-check "non-Gemini-Flash (pro) quota exits 10 without fallback" 10 "$rc" "QUOTA_EXHAUSTED" "$out"
-invocations=$(wc -l < "$SUBCALL" | tr -d ' ')
-if [ "$invocations" -eq 1 ]; then
-  echo "ok: pro tier quota does not fallback (exactly 1 invocation)"; PASS=$((PASS+1));
-else echo "FAIL: pro tier quota invocation count want 1 got $invocations"; FAIL=$((FAIL+1)); fi
-
-# Sonnet model unavailable remains exit 14
-out=$(STUB_MODE=flash_quota_sonnet_badmodel "$DELEGATE" "hi" 2>&1); rc=$?
-check "Sonnet model unavailable remains exit 14" 14 "$rc" "MODEL_UNAVAILABLE" "$out"
 
 echo "== cloud-debug.sh (Cloud Run log digest engine) =="
 CLOUD="$ROOT/scripts/cloud-debug.sh"
@@ -758,10 +761,11 @@ out=$("$HOOKS/inject-policy.sh" 2>/dev/null); rc=$?
 check "inject-policy default on -> emits additionalContext" 0 "$rc" "additionalContext" "$out"
 check "inject-policy uses lean routing (not 'delegate everything')" 0 "$rc" "LEAN ROUTING" "$out"
 check "inject-policy allows small tasks" 0 "$rc" "including small tasks" "$out"
-check "inject-policy requires adaptive Medium/High choice" 0 "$rc" '`--tier flash-medium`' "$out"
-check "inject-policy routes repository exploration through agy-scout" 0 "$rc" "agy-scout --dir" "$out"
-check "inject-policy routes raw diffs through agy-review" 0 "$rc" "agy-review --dir" "$out"
-check "inject-policy forbids duplicate raw-diff ingestion" 0 "$rc" "NEVER load or print the raw diff" "$out"
+check "inject-policy defaults to High" 0 "$rc" 'Default to `--tier flash`' "$out"
+check "inject-policy routes repository exploration through agy-scout" 0 "$rc" "agy-scout" "$out"
+check "inject-policy routes raw diffs through agy-review" 0 "$rc" "agy-review" "$out"
+check "inject-policy forbids duplicate raw-diff ingestion" 0 "$rc" "ingest compact digests" "$out"
+check "inject-policy requires user-controlled depleted quota" 0 "$rc" "Never switch models automatically" "$out"
 # the emitted stdout is a well-formed SessionStart hook payload (not just substrings)
 printf '%s' "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["hookSpecificOutput"]["hookEventName"]=="SessionStart"' 2>/dev/null; rc=$?
 check "inject-policy emits valid SessionStart JSON" 0 "$rc"
@@ -998,13 +1002,13 @@ else echo "FAIL: delegate agent missing PreToolUse gate"; FAIL=$((FAIL+1)); fi
 if grep -q "PROACTIVELY" "$AGENT" && grep -q "break-even judgment is yours" "$AGENT" && grep -q "Never refuse solely because a task is" "$AGENT"; then
   echo "ok: delegate agent is proactive AND keeps the break-even judgment"; PASS=$((PASS+1));
 else echo "FAIL: delegate agent missing proactive-with-judgment description"; FAIL=$((FAIL+1)); fi
-if grep -q 'Explicitly pass `--tier flash-medium` or `--tier flash`' "$AGENT" && ! grep -q 'do \*\*not\*\* delegate' "$AGENT"; then
-  echo "ok: delegate agent allows small tasks and explicitly selects Medium or High"; PASS=$((PASS+1));
-else echo "FAIL: delegate agent adaptive Flash policy missing or contradictory"; FAIL=$((FAIL+1)); fi
+if grep -q 'Default to `--tier flash` (High)' "$AGENT" && ! grep -q 'do \*\*not\*\* delegate' "$AGENT"; then
+  echo "ok: delegate agent allows small tasks and defaults to High"; PASS=$((PASS+1));
+else echo "FAIL: delegate agent High-default policy missing or contradictory"; FAIL=$((FAIL+1)); fi
 
 echo "== bin/ entrypoints (issue #11: \$CLAUDE_PLUGIN_ROOT not on model-run Bash) =="
 BIN="$ROOT/bin"
-for b in agy-delegate agy-job agy-cost-compare agy-doctor cloud-debug agy-trace measure-session agy-media agy-review agy-scout; do
+for b in agy-delegate agy-job agy-cost-compare agy-doctor cloud-debug agy-trace measure-session agy-media agy-review agy-scout agy-quota; do
   if [ -x "$BIN/$b" ]; then echo "ok: bin/$b executable"; PASS=$((PASS+1));
   else echo "FAIL: bin/$b missing or not executable"; FAIL=$((FAIL+1)); fi
 done
@@ -1019,6 +1023,13 @@ check "bin/cloud-debug forwards to cloud-debug.sh (no CLAUDE_PLUGIN_ROOT)" 0 "$r
 out=$(env -u CLAUDE_PLUGIN_ROOT "$BIN/measure-session" 2>&1 | head -1)
 case "$out" in *measure-session*) echo "ok: bin/measure-session forwards to the .py"; PASS=$((PASS+1));;
   *) echo "FAIL: bin/measure-session did not forward (got: '$out')"; FAIL=$((FAIL+1));; esac
+cat >"$TMP/quota-usage.txt" <<'EOF'
+Gemini Models  Weekly Limit Remaining  99%  2026-09-17T00:00:00Z
+Gemini Models  Five Hour Limit Remaining  100%  2026-09-10T05:00:00Z
+EOF
+out=$(AGY_QUOTA_STATE_DIR="$TMP/bin-quota-state" "$BIN/agy-quota" \
+  --input "$TMP/quota-usage.txt" --json 2>/dev/null); rc=$?
+check "bin/agy-quota resolves a working Python interpreter" 0 "$rc" '"status":"AVAILABLE"' "$out"
 
 echo "== the whitespace check does not pin a CPU (issue #66, bash 3.2) =="
 # `${OUT//[$' \t\n\r']/}` answers "is this only whitespace?" by rewriting the whole
@@ -1746,6 +1757,20 @@ if grep -q "state=running" <<<"$out"; then
   echo "FAIL: job cancel (still running)"; FAIL=$((FAIL+1))
 else echo "ok: job cancel stops it"; PASS=$((PASS+1)); fi
 
+# cancel-all is intentionally scoped to the plugin registry supplied here; never touch
+# unrelated real Agy processes or the developer's normal job registry in this test.
+CANCEL_REG="$TMP/cancel-all-jobs"
+c1=$(ANTIGRAVITY_JOBS="$CANCEL_REG" STUB_MODE=text STUB_SLEEP=10 "$JOB" start "one" 2>/dev/null)
+c2=$(ANTIGRAVITY_JOBS="$CANCEL_REG" STUB_MODE=text STUB_SLEEP=10 "$JOB" start "two" 2>/dev/null)
+sleep 0.5
+out=$(ANTIGRAVITY_JOBS="$CANCEL_REG" "$JOB" cancel-all 2>/dev/null); rc=$?
+check "job cancel-all -> exit 0" 0 "$rc" "cancelled" "$out"
+sleep 0.5
+if ANTIGRAVITY_JOBS="$CANCEL_REG" "$JOB" status "$c1" | grep -q running \
+   || ANTIGRAVITY_JOBS="$CANCEL_REG" "$JOB" status "$c2" | grep -q running; then
+  echo "FAIL: job cancel-all left a plugin-managed job running"; FAIL=$((FAIL+1))
+else echo "ok: job cancel-all stops every job in its registry"; PASS=$((PASS+1)); fi
+
 # structured exit code surfaces through the job layer (quota -> rc 10 + label + signal)
 qid=$(STUB_MODE=quota "$JOB" start --tier flash "quota task" 2>/dev/null)
 for _ in 1 2 3 4 5 6 7 8; do
@@ -1756,7 +1781,7 @@ out=$("$JOB" status "$qid" 2>/dev/null)
 # require the rendered rc LABEL (guards the rc-from-file fix), not just the signal line
 if grep -q "rc=10: QUOTA" <<<"$out"; then echo "ok: job renders rc=10 label"; PASS=$((PASS+1));
 else echo "FAIL: job did not render 'rc=10: QUOTA' label (got: $out)"; FAIL=$((FAIL+1)); fi
-if grep -q "QUOTA_EXHAUSTED" <<<"$out"; then echo "ok: job shows AGY_SIGNAL"; PASS=$((PASS+1));
+if grep -q "QUOTA_DECISION_REQUIRED" <<<"$out"; then echo "ok: job shows AGY_SIGNAL"; PASS=$((PASS+1));
 else echo "FAIL: job did not surface AGY_SIGNAL"; FAIL=$((FAIL+1)); fi
 
 echo "== CI workflow invariants =="
@@ -1886,7 +1911,7 @@ for s in ("hooks/check-agy.sh", "hooks/inject-policy.sh", "hooks/validate-delega
 
 # bin/ entrypoints exist + executable (issue #11: $CLAUDE_PLUGIN_ROOT isn't exported
 # to model-run Bash, so commands/skill must call these bare names on the PATH)
-for b in ("agy-delegate", "agy-job", "agy-cost-compare", "agy-doctor", "cloud-debug", "agy-trace", "measure-session", "agy-media", "agy-review", "agy-scout"):
+for b in ("agy-delegate", "agy-job", "agy-cost-compare", "agy-doctor", "cloud-debug", "agy-trace", "measure-session", "agy-media", "agy-review", "agy-scout", "agy-quota"):
     need(os.access(p("bin", b), os.X_OK), "bin entrypoint missing/not executable: bin/" + b)
 
 # regression guard: commands & skill must NOT invoke $CLAUDE_PLUGIN_ROOT/scripts/* — that

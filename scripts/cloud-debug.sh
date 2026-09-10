@@ -2,7 +2,7 @@
 #
 # cloud-debug.sh — fetch a GCP resource's recent ERROR logs and hand them to
 # Antigravity (`agy` / Gemini) for a compact, structured digest.
-# Part of the "Antigravity for Claude Code" plugin.
+# Part of Polyphony.
 #
 # This is the Executor half of the /antigravity:cloud-run-debug command:
 # Claude (the Conductor) reasons about root cause + the fix; the bulk, cheap
@@ -29,7 +29,7 @@
 #       --severity <SEV>         Minimum severity (default: ERROR)
 #       --resource-type <type>    GCP resource.type (default: cloud_run_revision)
 #   -p, --project <id>           GCP project (default: gcloud config's project)
-#   -t, --tier <flash-medium|flash|pro>  agy tier (default: flash-medium)
+#   -t, --tier <flash-medium|flash|pro>  agy tier (default: flash / High)
 #       --print-command          Print the resolved gcloud + agy commands and exit (dry run)
 #   -h, --help                   Show this help
 #
@@ -57,7 +57,7 @@ LIMIT="200"
 SEVERITY="ERROR"
 RESOURCE_TYPE="cloud_run_revision"
 PROJECT=""
-TIER="flash-medium"
+TIER="flash"
 PRINT_CMD=0
 
 die() { echo "cloud-debug: $*" >&2; exit 1; }

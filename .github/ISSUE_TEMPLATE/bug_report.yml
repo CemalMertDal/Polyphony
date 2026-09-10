@@ -7,7 +7,7 @@ body:
       value: |
         Thanks for the report! Every environment bug fixed so far (#6, #10, #11, #15) was
         solved by exactly the info below. Please check
-        [docs/TROUBLESHOOTING.md](https://github.com/GryAsl/antigravity-for-claude-code-and-codex/blob/main/docs/TROUBLESHOOTING.md)
+        [docs/TROUBLESHOOTING.md](https://github.com/GryAsl/Polyphony/blob/master/docs/TROUBLESHOOTING.md)
         first — your issue may already have a fix or a documented workaround.
   - type: textarea
     id: what
@@ -41,8 +41,8 @@ body:
       label: How is the plugin installed?
       description: Marketplace and local-dev installs resolve paths differently (see #11) — this matters.
       options:
-        - Claude marketplace (/plugin install antigravity@antigravity-for-claude-code-and-codex)
-        - Codex marketplace (codex plugin add antigravity@antigravity-for-claude-code-and-codex)
+        - Claude marketplace (/plugin install antigravity@polyphony)
+        - Codex marketplace (codex plugin add antigravity@polyphony)
         - Local dev (claude --plugin-dir ...)
         - Not sure
     validations:

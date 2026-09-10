@@ -11,7 +11,7 @@ GOAL="Review the selected changes for correctness and unintended behavior."
 SCOPE="worktree"
 SCOPE_SET=0
 RANGE=""
-TIER="flash-medium"
+TIER="flash"
 TIER_EXPLICIT=0
 TIMEOUT="30m"
 ADVERSARIAL=0
@@ -32,7 +32,7 @@ Usage: agy-review [options] [goal]
   --range <A..B>        Explicit Git revision/range
   --path <pathspec>     Limit scope; repeatable
   --adversarial         Also challenge design and tradeoffs
-  --tier <flash-medium|flash|pro>  Tier (default: Medium; adversarial defaults High)
+  --tier <flash-medium|flash|pro>  Tier (default: High)
   --timeout <duration>  Delegation timeout (default: 30m)
 
 The raw diff is sent only to agy. Untracked file contents are deliberately excluded;

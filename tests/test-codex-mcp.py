@@ -49,6 +49,7 @@ class McpAdapterTests(unittest.TestCase):
             ("research", {"query": "q"}, "agy-delegate.sh"),
             ("media", {"file": "x.png"}, "agy-media.sh"),
             ("job", {"action": "list"}, "agy-job.sh"),
+            ("quota", {"action": "check"}, "agy-quota.py"),
             ("trace", {"action": "last"}, "agy-trace.sh"),
             ("doctor", {}, "doctor.sh"),
             ("migrate", {"arguments": ["--help"]}, "agy-migrate.py"),
@@ -144,6 +145,25 @@ class McpAdapterTests(unittest.TestCase):
         mcp._dispatch("scout", {"question": "q", "tier": "flash"})
         self.assertIn("--tier", self.calls[-1][0])
         self.assertIn("flash", self.calls[-1][0])
+
+    def test_quota_actions_and_cancel_all_are_exactly_mapped(self):
+        mcp._dispatch("quota", {"action": "check", "force": True})
+        self.assertEqual(self.calls[-1][0][-2:], ["--json", "--force"])
+        mcp._dispatch("quota", {"action": "choose_sonnet"})
+        self.assertEqual(self.calls[-1][0][-3:], ["--decision", "sonnet", "--json"])
+        mcp._dispatch("quota", {"action": "choose_wait"})
+        self.assertEqual(self.calls[-1][0][-3:], ["--decision", "wait", "--json"])
+        mcp._dispatch("quota", {"action": "clear"})
+        self.assertEqual(self.calls[-1][0][-3:], ["--decision", "clear", "--json"])
+        mcp._dispatch("job", {"action": "cancel_all"})
+        self.assertEqual(self.calls[-1][0][-1], "cancel-all")
+
+    def test_server_version_matches_manifests(self):
+        response = mcp.handle_request({"id": 1, "method": "initialize", "params": {}})
+        self.assertEqual(response["result"]["serverInfo"]["version"], "0.30.0")
+        for manifest in (".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
+            data = json.loads((ROOT / manifest).read_text(encoding="utf-8"))
+            self.assertEqual(data["version"], "0.30.0")
 
     def test_exit_code_stdout_and_stderr_are_preserved(self):
         def failed(argv, **kwargs):

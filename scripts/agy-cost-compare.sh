@@ -27,12 +27,12 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-TIER="flash-medium"
+TIER="flash"
 
 YOLO=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    -t|--tier) TIER="${2:-flash-medium}"; shift 2 ;;
+    -t|--tier) TIER="${2:-flash}"; shift 2 ;;
     --yolo)    YOLO="--yolo"; shift ;;   # needed if the task uses tools (web/Vertex search)
     --)        shift; break ;;
     -*)        echo "unknown option: $1" >&2; exit 1 ;;

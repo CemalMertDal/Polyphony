@@ -7,7 +7,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 DELEGATE="${AGY_DELEGATE:-$HERE/agy-delegate.sh}"
 DIR="."
 TIMEOUT="30m"
-TIER="flash-medium"
+TIER="flash"
 QUESTION=""
 MAX_OUTPUT="${AGY_SCOUT_MAX_OUTPUT_CHARS:-8000}"
 
@@ -16,8 +16,8 @@ usage() {
 Usage: agy-scout --dir <repo> [--tier flash-medium|flash] [--timeout 30m] "question"
 
 Runs one read-only latest-Gemini-Flash planning scout and returns only a compact,
-evidence-based digest. Medium is the routine default; use High (`flash`) for a
-genuinely complex mechanism. It never passes --yolo.
+evidence-based digest. High (`flash`) is the default; Medium is explicitly selectable
+for a clearly simple question. It never passes --yolo.
 EOF
 }
 die() { echo "agy-scout: $*" >&2; exit 2; }

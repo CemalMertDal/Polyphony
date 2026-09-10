@@ -17,7 +17,7 @@ model runs, so marketplace installs saw an empty path ([#11](https://github.com/
 `agy-job`, `agy-doctor`, `agy-cost-compare`) on the plugin's `bin/` PATH:
 
 ```
-/plugin marketplace update antigravity-for-claude-code-and-codex
+/plugin marketplace update polyphony
 /reload-plugins
 ```
 
@@ -181,7 +181,7 @@ On classifiable failures the wrapper prints a machine-readable line to stderr:
 | 1 | usage error | check flags (`agy-delegate --help`) |
 | 2 | agy failed (unclassified) | read the stderr it relayed |
 | 3 | agy returned empty output | retry; check model availability (`agy models`) |
-| 10 | quota / rate limit | Gemini Flash already fell back once to a fresh `claude-sonnet-4-6` call; Sonnet also hit quota, so stop and retry later |
+| 10 | quota / rate limit / waiting | The wrapper checks both Gemini 5h and 7d windows; either at or below 2% is depleted. Ask the user whether to kill stalled workers and continue with Sonnet 4.6 or leave them alive and check both windows every 10 minutes. Never choose automatically. |
 | 11 | not authenticated | run `agy` once interactively to sign in |
 | 12 | timeout (agy's own, or the wall-clock guard) | raise `--timeout`, narrow the task; on Windows see the hang section above |
 | 13 | agy not on PATH | install the Antigravity CLI |
@@ -220,7 +220,7 @@ plugin option; `0` disables the warning.
 Third-party marketplace plugins do **not** auto-update by default:
 
 ```
-/plugin marketplace update antigravity-for-claude-code-and-codex
+/plugin marketplace update polyphony
 /reload-plugins
 ```
 
@@ -231,6 +231,6 @@ version bumps — see [CHANGELOG.md](../CHANGELOG.md).
 
 ## Still stuck?
 
-[Open a bug report](https://github.com/GryAsl/antigravity-for-claude-code-and-codex/issues/new/choose)
+[Open a bug report](https://github.com/GryAsl/Polyphony/issues/new/choose)
 — the template asks for your `agy-doctor` output, OS, and install method, which is
 usually everything needed to diagnose in one round-trip.
