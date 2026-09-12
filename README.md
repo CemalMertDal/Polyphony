@@ -15,10 +15,8 @@ a shared, verifiable toolchain.
 
 ## About
 
-Polyphony is a community-built orchestration layer that gives Claude Code and Codex the
-same production-minded Antigravity (`agy`) worker toolkit. It is designed to reduce main
-agent context use while retaining explicit scope, observable execution, compact evidence,
-and user-controlled fallback behavior.
+Polyphony gives Claude Code and Codex the same Antigravity (`agy`) worker toolkit. It
+reduces main-agent context use while keeping execution scoped, observable, and verifiable.
 
 - scoped implementation and general delegation
 - read-only repository scouting and independent diff review
@@ -26,15 +24,14 @@ and user-controlled fallback behavior.
 - background jobs, 5h/7d quota control, traces, diagnostics, migration, Cloud debugging, and cost comparison
 - non-blocking reminders when a task could be delegated to Gemini
 
-Native Windows headless execution uses the bundled `agy-headless-bridge` v1.2.1 through Windows ConPTY. No separate bridge installation is required.
+On Windows, the bundled `agy-headless-bridge` v1.2.1 runs headless workers through ConPTY;
+no separate bridge installation is required.
 
 ## Requirements
 
-- [Antigravity CLI](https://antigravity.google/docs/cli-using) (`agy`), installed and authenticated
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code), Codex, or both
-- Python 3.9 or newer
-- [pywinpty](https://pypi.org/project/pywinpty/) on native Windows
-- Git Bash, normally included with [Git for Windows](https://git-scm.com/download/win), because the wrappers are Bash scripts
+- [Antigravity CLI](https://antigravity.google/docs/cli-using) (`agy`), installed and authenticated, plus [Claude Code](https://docs.anthropic.com/en/docs/claude-code), Codex, or both
+- Python 3.9 or newer, with [pywinpty](https://pypi.org/project/pywinpty/) on Windows
+- On Windows: Git Bash, included with [Git for Windows](https://git-scm.com/download/win), for the Bash wrappers
 
 On native Windows, install `pywinpty` and authenticate Antigravity once:
 
@@ -54,7 +51,7 @@ Run these commands inside Claude Code:
 /antigravity:setup
 ```
 
-The plugin installs its slash commands, Antigravity skill, custom agent, wrappers, and optional delegation-reminder hooks.
+This installs the slash commands, skill, custom agent, wrappers, and optional delegation reminders.
 
 ## Install for Codex
 
@@ -63,11 +60,11 @@ codex plugin marketplace add https://github.com/GryAsl/Polyphony
 codex plugin add antigravity@polyphony
 ```
 
-Start a new Codex task after installation. Codex receives direct MCP tools for delegation, scouting, review, research, media, jobs, quota control, traces, diagnostics, migration, Cloud debugging, and cost comparison. Review and trust the optional non-blocking hooks from `/hooks`; Codex does not trust plugin hooks automatically.
+Start a new Codex task after installation. The plugin provides direct MCP tools for delegation, scouting, review, research, media, jobs, quota control, traces, diagnostics, migration, Cloud debugging, and cost comparison. Optional hooks in `/hooks` must be reviewed and trusted separately.
 
 ## Model routing
 
-Calls default to High. The caller may explicitly choose Medium for a clearly simple task:
+Calls default to High. Choose Medium explicitly only for a clearly simple task:
 
 | Tier | Use it for | Model selection |
 | --- | --- | --- |
@@ -75,7 +72,7 @@ Calls default to High. The caller may explicitly choose Medium for a clearly sim
 | `flash-medium` | Explicit option for simple, routine, mechanical, or tightly bounded work | Newest available Gemini Flash, Medium effort |
 | `pro` | Exceptional escalation only | Configured Gemini Pro model |
 
-There is no Low tier. Both Flash tiers query `agy models` and automatically follow the newest available Gemini Flash family. If discovery is unavailable, version 0.30.0 falls back to Gemini 3.8 Flash at the selected effort level. Exact models can still be supplied with `--model` or the plugin configuration overrides.
+There is no Low tier. Both Flash tiers query `agy models` and follow the newest available Gemini Flash family. If discovery is unavailable, they fall back to Gemini 3.8 Flash at the selected effort level. Exact models can still be supplied with `--model` or plugin configuration overrides.
 
 ## Usage
 
@@ -110,31 +107,27 @@ The plugin reads Agy's zero-token `/usage` response and tracks both the Gemini *
 If either window has **2% or less remaining**, the wrapper enters depleted mode and does
 not switch models automatically.
 
-Claude or Codex must ask the user—in English—to choose one of these paths:
+Claude or Codex must ask the user to choose one of these paths:
 
 1. Kill active Agy workers that are no longer progressing and continue the interrupted
    task with exact model `claude-sonnet-4-6`.
 2. Keep the workers alive, wait for quota reset, and check both windows every 10 minutes.
 
-The choice is recorded with `/antigravity:quota sonnet|wait`, `agy-quota --decision
-sonnet|wait`, or the Codex `quota` MCP tool. The Sonnet route is permitted only after the
-explicit choice. `agy-job cancel-all` cancels only plugin-managed background jobs; the
-host also cancels any stalled tool tasks it started itself. Waiting uses the host's
-scheduler/wakeup facility and resumes Gemini only after both windows are above 2%.
+Record the choice with `/antigravity:quota sonnet|wait`, `agy-quota --decision
+sonnet|wait`, or the Codex `quota` MCP tool. `agy-job cancel-all` covers plugin-managed
+jobs; the host must cancel any stalled tool tasks it started. Waiting resumes Gemini only
+after both windows are above 2%.
 
-The tracker emits a one-time English notice when either window crosses 75%, 50%, 25%, or
-10% remaining, such as `Agy Gemini 7d quota has only 50% remaining.` A threshold is not
-announced again until that quota window resets above it.
+The tracker emits a one-time notice when either window crosses 75%, 50%, 25%, or 10%
+remaining. A threshold is not announced again until that quota window resets above it.
 
 ## Permissions and troubleshooting
 
-Write-capable tasks should run on a trusted branch with only the permissions you intend to grant. `--yolo` broadly exposes files, commands, network access, and process-visible credentials to the worker; it remains explicit unless enabled in plugin or environment settings.
+Run write-capable tasks on a trusted branch. `--yolo` grants the worker broad access to
+files, commands, network access, and process-visible credentials; it remains explicit
+unless enabled in plugin or environment settings.
 
 If a call fails, run `/antigravity:setup` in Claude Code, the `doctor` MCP tool in Codex, or `agy-doctor` from Git Bash. More diagnostics are in [Troubleshooting](docs/TROUBLESHOOTING.md).
-
-## License
-
-[MIT](LICENSE). Third-party notices are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). This is a community project and is not affiliated with Google, Anthropic, or OpenAI.
 
 ## Why Polyphony uses ConPTY on Windows
 
