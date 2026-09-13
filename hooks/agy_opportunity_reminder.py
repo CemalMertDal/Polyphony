@@ -70,6 +70,14 @@ CLAUDE_ONLY_TOOLS = {
     "taskupdate", "schedulewakeup",
 }
 
+# Claude's AskUserQuestion answer is delivered as a tool result rather than a
+# normal UserPromptSubmit in the desktop app. Keep this separate from the
+# substantive-tool classifier: recording a routing choice is control-plane
+# state, not work that must itself be delegated.
+MODE_SELECTION_TOOLS = {
+    "askuserquestion",
+}
+
 REMINDERS = {
     "discovery": (
         "depo/kaynak keşfi veya kod-doküman okuması yapıyorsun",
@@ -996,6 +1004,83 @@ def _extract_last_message(data: dict) -> str:
     return ""
 
 
+def _iter_mode_answer_text(value: object, depth: int = 0):
+    """Yield likely AskUserQuestion answer values without ingesting its prompt/options."""
+    if depth > 8:
+        return
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return
+        # Claude may wrap a structured tool result in a JSON text block.
+        if stripped[:1] in {"{", "["}:
+            try:
+                decoded = json.loads(stripped)
+            except Exception:
+                decoded = None
+            if decoded is not None:
+                yield from _iter_mode_answer_text(decoded, depth + 1)
+                return
+        yield value
+        return
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        yield str(value)
+        return
+    if isinstance(value, list):
+        for item in value:
+            yield from _iter_mode_answer_text(item, depth + 1)
+        return
+    if not isinstance(value, dict):
+        return
+
+    preferred = {
+        "answer", "answers", "choice", "choices", "selected", "selected_option",
+        "selectedoption", "selection", "value", "values", "response", "result",
+        "content", "text",
+    }
+    found_preferred = False
+    for key, item in value.items():
+        normalized = re.sub(r"[^a-z0-9]", "", str(key).lower())
+        if normalized in preferred or normalized.startswith("answer"):
+            found_preferred = True
+            yield from _iter_mode_answer_text(item, depth + 1)
+    if found_preferred:
+        return
+
+    # Some Claude payloads put the answer under an arbitrary question id. Do
+    # not recurse through prompt/options metadata, which would otherwise make
+    # the available choices look like a user selection.
+    ignored = {"question", "questions", "options", "option", "header", "description", "label"}
+    for key, item in value.items():
+        normalized = re.sub(r"[^a-z0-9]", "", str(key).lower())
+        if normalized in ignored:
+            continue
+        yield from _iter_mode_answer_text(item, depth + 1)
+
+
+def _extract_mode_from_answer(data: dict) -> str | None:
+    """Extract a strict/soft choice from Claude's AskUserQuestion result."""
+    response = data.get("tool_response")
+    if response is None:
+        response = data.get("toolResponse")
+    if response is None:
+        response = data.get("result")
+    if response is None:
+        response = data.get("response")
+    payloads = [response, data.get("answers"), data.get("answer")]
+    seen: set[str] = set()
+    for payload in payloads:
+        for candidate in _iter_mode_answer_text(payload):
+            key = candidate.strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            mode, is_sole = parse_mode_selection_intent(key)
+            if mode is not None and is_sole:
+                return mode
+    return None
+
+
 def handle_session_start(data: dict, session_id: str) -> None:
     matcher = str(data.get("matcher") or "").lower()
     source = str(data.get("source") or "").lower()
@@ -1173,6 +1258,34 @@ def handle_post_tool_use(event: str, data: dict, state: dict, session_id: str) -
         tool_input = data.get("toolInput", data.get("arguments", {}))
     if not isinstance(tool_input, dict):
         tool_input = {}
+
+    # AskUserQuestion answers arrive here in Claude Code desktop. Previously
+    # this handler returned immediately because the event was not an Agy work
+    # call, leaving mode=None and causing every following Bash/Glob call to be
+    # denied as "routing mode selection is pending". Persist the answer before
+    # evaluating substantive Agy work so the very next tool sees the choice.
+    normalized_tool = re.sub(r"[^a-z0-9]", "", tool_name.lower())
+    if event == "PostToolUse" and normalized_tool in MODE_SELECTION_TOOLS:
+        selected_mode = _extract_mode_from_answer(data)
+        if selected_mode is not None:
+            state["mode"] = selected_mode
+            state["question_presented"] = True
+            state["user_mode_selection"] = True
+            state["is_substantive"] = False
+            state["agy_attempted"] = False
+            state["agy_success"] = False
+            state["agy_failed"] = False
+            state["last_agy_error"] = ""
+            state["denied_categories"] = []
+            state["warned_categories"] = []
+            state["continuation_count"] = 0
+            _write_state(session_id, state)
+            label = "Always use Agy (strict)" if selected_mode == "strict" else "Use Agy when appropriate (soft)"
+            _emit_context(
+                "PostToolUse",
+                f"[Agy routing] Recorded your selection: {label}. Continue the original request using this mode.",
+            )
+            return
 
     if not is_work_producing_agy_call(tool_name, tool_input):
         return

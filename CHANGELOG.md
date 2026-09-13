@@ -3,6 +3,14 @@
 All notable changes to **Polyphony**. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions are in `.claude-plugin/plugin.json`.
 
+## 0.31.10 — Persist AskUserQuestion routing choices
+
+- Persist strict/soft selections returned by Claude Code's `AskUserQuestion` tool result before
+  the next native tool call. This prevents a valid choice from remaining `pending` and blocking
+  every subsequent Bash, Glob, or file operation.
+- Added structured answer extraction for Claude desktop payloads and regression coverage for
+  string, nested, and numeric answer shapes.
+
 ## 0.31.0 — Two-mode Agy routing enforcement
 
 - Added two-mode Agy routing enforcement across Claude Code and Codex: **Always use Agy (strict)** and **Use Agy when appropriate (soft)**.

@@ -1,6 +1,6 @@
 {
   "name": "antigravity",
-  "version": "0.31.0",
+  "version": "0.31.10",
   "description": "Polyphony: multi-model orchestration for Claude Code and Codex through Antigravity, with native Windows ConPTY support.",
   "author": {
     "name": "GryAsl"

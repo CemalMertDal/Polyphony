@@ -30,6 +30,10 @@ Polyphony provides two session-level routing modes:
 - Use Agy when appropriate (soft)
 The user's initial substantive request is kept in conversation and resumed immediately after the choice.
 
+The Claude desktop `AskUserQuestion` answer is recorded from its `PostToolUse` result. Do not
+restate the choice as a substantive request or expect a plain `UserPromptSubmit`; the hook persists
+the selected mode before the next tool call.
+
 **Control-plane exceptions:** Presenting the mode question, mode recording/changes, quota checks/choices, job/trace/doctor/cancel management, reading bootstrap policy/config, and user interaction are exempt from delegation gating.
 
 **Manual mode switching:** Users can explicitly change the mode at any time with unambiguous phrasing such as "switch Agy mode to strict" or "set Agy mode to soft".

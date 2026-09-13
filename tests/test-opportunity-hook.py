@@ -202,6 +202,45 @@ class OpportunityHookTests(unittest.TestCase):
         ext_data = json.loads(ext_out)
         self.assertNotIn("permissionDecision", ext_data["hookSpecificOutput"])
 
+    def test_ask_user_question_result_persists_mode_before_next_tool(self):
+        """Claude desktop returns the routing answer as PostToolUse, not a user prompt."""
+        for answer, expected in (
+            ("Always use Agy (strict)", "strict"),
+            ({"answers": {"routing": "Use Agy when appropriate (soft)"}}, "soft"),
+            ({"answers": {"routing": 1}}, "strict"),
+        ):
+            with self.subTest(answer=answer):
+                session = str(uuid.uuid4())
+                self.invoke({
+                    "hook_event_name": "SessionStart",
+                    "session_id": session,
+                    "matcher": "startup",
+                })
+                response = {"answers": {"routing": answer}} if isinstance(answer, str) else answer
+                self.invoke({
+                    "hook_event_name": "PostToolUse",
+                    "session_id": session,
+                    "tool_name": "AskUserQuestion",
+                    "tool_input": {"questions": [{"question": "routing", "options": []}]},
+                    "tool_response": response,
+                })
+                state_name = hashlib.sha256(session.encode("utf-8")).hexdigest()[:24] + ".json"
+                state = json.loads(Path(self.temp.name, state_name).read_text(encoding="utf-8"))
+                self.assertEqual(state.get("mode"), expected)
+                self.assertTrue(state.get("user_mode_selection"))
+
+                next_tool = self.invoke({
+                    "hook_event_name": "PreToolUse",
+                    "session_id": session,
+                    "tool_name": "Read",
+                    "tool_input": {"file_path": "src/app.py"},
+                })
+                hook = json.loads(next_tool)["hookSpecificOutput"]
+                if expected == "strict":
+                    self.assertEqual(hook.get("permissionDecision"), "deny")
+                else:
+                    self.assertNotIn("permissionDecision", hook)
+
     # --- 4. Soft Choice & Preserved Once-Per-Category Advisory ---
 
     def test_soft_choice_and_preserved_once_per_category_advisory(self):
