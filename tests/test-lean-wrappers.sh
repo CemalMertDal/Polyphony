@@ -157,7 +157,10 @@ cat >"$EMPTY_BIN/python3" <<'STUB'
 #!/usr/bin/env bash
 for name in AGY_JSON_FILE AGY_RESP_FILE AGY_ERR_FILE; do
   value="${!name:-}"
-  [ -z "$value" ] || printf -v "$name" '%s' "$(cygpath -aw "$value")"
+  if [ -n "$value" ] && command -v cygpath >/dev/null 2>&1; then
+    value="$(cygpath -aw "$value")"
+  fi
+  printf -v "$name" '%s' "$value"
   export "$name"
 done
 exec python "$@"
