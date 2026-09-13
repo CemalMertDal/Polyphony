@@ -1,6 +1,6 @@
 {
   "name": "antigravity",
-  "version": "0.30.0",
+  "version": "0.31.0",
   "description": "Polyphony: multi-model orchestration from Codex to Antigravity workers through tested shared wrappers.",
   "author": {
     "name": "GryAsl",
@@ -10,15 +10,19 @@
   "repository": "https://github.com/GryAsl/Polyphony",
   "license": "MIT",
   "keywords": ["polyphony", "antigravity", "gemini", "codex", "delegation", "windows", "conpty"],
-  "skills": "./codex/skills/",
-  "mcpServers": "./codex/.mcp.json",
-  "hooks": "./codex/hooks.json",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Polyphony",
     "shortDescription": "Orchestrate Antigravity workers from Codex",
     "longDescription": "Delegation, repository scouting, review, research, media, jobs, quota control, traces, diagnostics, migration, Cloud debugging, and cost comparison through the existing Antigravity wrappers.",
     "developerName": "GryAsl",
     "category": "Developer Tools",
-    "capabilities": ["Read", "Write"]
+    "capabilities": ["Read", "Write"],
+    "defaultPrompt": [
+      "Choose strict or soft routing for this session",
+      "Delegate a repository task to Antigravity",
+      "Review git diff changes with Antigravity"
+    ]
   }
 }

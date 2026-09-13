@@ -6,6 +6,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 REVIEW="$ROOT/scripts/agy-review.sh"
 SCOUT="$ROOT/scripts/agy-scout.sh"
+DELEGATE_REAL="$ROOT/scripts/agy-delegate.sh"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 PASS=0; FAIL=0
 
@@ -59,8 +60,10 @@ if AGY_DELEGATE="$STUB" AGY_CAPTURE="$CAP" "$REVIEW" --dir "$REPO" --goal "only 
     || bad "compact review output"
   has "$CAP.err" 'untracked contents are excluded' && ok "untracked review gap is explicit" \
     || bad "untracked warning"
-  [ "$(cat "$CAP.cwd")" != "$REPO" ] && ok "blind review runs outside the caller repository" \
-    || bad "blind review working directory isolation"
+  [ "$(cat "$CAP.cwd")" = "$REPO" ] && ok "review stays in the selected repository" \
+    || bad "review working directory"
+  has "$CAP.args" --idle-timeout && has "$CAP.args" 180 \
+    && ok "review has a bounded idle timeout" || bad "review idle timeout"
 else
   bad "worktree review exits zero"
 fi
@@ -127,6 +130,80 @@ if AGY_DELEGATE="$STUB" AGY_CAPTURE="$CAP" AGY_REVIEW_CHUNK_BYTES=200 \
   fi
 else
   bad "chunked review exits zero"
+fi
+
+# Empty-output recovery must be bounded and must never blindly repeat a write task.
+EMPTY_BIN="$TMP/empty-bin"
+mkdir -p "$EMPTY_BIN"
+cat >"$EMPTY_BIN/agy" <<'STUB'
+#!/usr/bin/env bash
+[ "${1:-}" != "--help" ] || { printf '%s\n' '--output-format'; exit 0; }
+n=0; [ ! -f "$AGY_EMPTY_COUNTER" ] || n="$(cat "$AGY_EMPTY_COUNTER")"
+n=$((n + 1)); printf '%s' "$n" >"$AGY_EMPTY_COUNTER"
+[ -z "${AGY_EMPTY_ARGS:-}" ] || printf '%s\n' "$*" >>"$AGY_EMPTY_ARGS"
+if [ "${AGY_EMPTY_STRUCTURED:-0}" = 1 ]; then
+  if [ "$n" -eq 1 ]; then
+    printf '%s\n' '{"status":"SUCCESS","response":"","conversation_id":"fixture-conversation","usage":{}}'
+  else
+    printf '%s\n' '{"status":"SUCCESS","response":"DIGEST: recovered from the same conversation","conversation_id":"fixture-conversation","usage":{}}'
+  fi
+  exit 0
+fi
+[ "$n" -gt 1 ] && printf 'DIGEST: recovered after one empty read-only turn\n'
+exit 0
+STUB
+chmod +x "$EMPTY_BIN/agy"
+cat >"$EMPTY_BIN/python3" <<'STUB'
+#!/usr/bin/env bash
+for name in AGY_JSON_FILE AGY_RESP_FILE AGY_ERR_FILE; do
+  value="${!name:-}"
+  [ -z "$value" ] || printf -v "$name" '%s' "$(cygpath -aw "$value")"
+  export "$name"
+done
+exec python "$@"
+STUB
+chmod +x "$EMPTY_BIN/python3"
+cat >"$EMPTY_BIN/timeout" <<'STUB'
+#!/usr/bin/env bash
+case "${1:-}" in --kill-after=*) shift ;; esac
+[ "$#" -eq 0 ] || shift
+exec "$@"
+STUB
+chmod +x "$EMPTY_BIN/timeout"
+
+EMPTY_COUNTER="$TMP/empty-counter"
+if PATH="$EMPTY_BIN:$PATH" AGY_EMPTY_COUNTER="$EMPTY_COUNTER" AGY_TEST_FORCE_POSIX=1 \
+  AGY_DELEGATE_READ_ONLY=1 CLAUDE_PLUGIN_OPTION_STRUCTURED_OUTPUT=off \
+  "$DELEGATE_REAL" --model 'Fixture Model' --timeout 1s 'inspect only' >"$TMP/empty.out" 2>"$TMP/empty.err" \
+  && [ "$(cat "$EMPTY_COUNTER")" = 2 ] && has "$TMP/empty.out" 'DIGEST: recovered'; then
+  ok "read-only empty output gets one bounded recovery"
+else
+  bad "read-only empty-output recovery"
+fi
+
+rm -f "$EMPTY_COUNTER"
+set +e
+PATH="$EMPTY_BIN:$PATH" AGY_EMPTY_COUNTER="$EMPTY_COUNTER" AGY_TEST_FORCE_POSIX=1 \
+  CLAUDE_PLUGIN_OPTION_STRUCTURED_OUTPUT=off \
+  "$DELEGATE_REAL" --model 'Fixture Model' --timeout 1s 'edit a file' >"$TMP/write-empty.out" 2>"$TMP/write-empty.err"
+RC=$?
+set -e
+if [ "$RC" -eq 3 ] && [ "$(cat "$EMPTY_COUNTER")" = 1 ]; then
+  ok "empty write task is never blindly repeated"
+else
+  bad "write-task empty-output safety"
+fi
+
+rm -f "$EMPTY_COUNTER"
+EMPTY_ARGS="$TMP/empty-args"
+if PATH="$EMPTY_BIN:$PATH" AGY_EMPTY_COUNTER="$EMPTY_COUNTER" AGY_EMPTY_ARGS="$EMPTY_ARGS" \
+  AGY_EMPTY_STRUCTURED=1 AGY_TEST_FORCE_POSIX=1 \
+  "$DELEGATE_REAL" --model 'Fixture Model' --timeout 1s 'edit a file once' >"$TMP/conversation.out" 2>"$TMP/conversation.err" \
+  && [ "$(cat "$EMPTY_COUNTER")" = 2 ] && has "$EMPTY_ARGS" '--conversation fixture-conversation' \
+  && has "$TMP/conversation.out" 'DIGEST: recovered from the same conversation'; then
+  ok "empty write result resumes its conversation for digest only"
+else
+  bad "conversation-based empty-output recovery"
 fi
 
 echo "wrapper PASS=$PASS FAIL=$FAIL"

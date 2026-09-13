@@ -3,6 +3,20 @@
 All notable changes to **Polyphony**. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions are in `.claude-plugin/plugin.json`.
 
+## 0.31.0 — Two-mode Agy routing enforcement
+
+- Added two-mode Agy routing enforcement across Claude Code and Codex: **Always use Agy (strict)** and **Use Agy when appropriate (soft)**.
+- Every newly started, resumed, cleared, or forked session begins with routing mode unanswered and effective strict behavior (preserved across compact).
+- At the first user-facing turn, the main agent must ask exactly one concise question presenting both visible choices: `Always use Agy (strict)` and `Use Agy when appropriate (soft)`. The first substantive user request remains in conversation and is resumed after the choice.
+- Strict mode gates all substantive work (discovery, implementation/edits, diff review, verification, Git, research, media, subagents, and terminal automation) with PreToolUse denials pointing to `agy-scout`, `agy-delegate`, `agy-review`, or Polyphony MCP tools. External/unproven connectors remain advisory.
+- Control-plane operations (asking/presenting mode questions, recording/changing mode, quota checks/choices, job/trace/doctor/cancel management, bootstrap policy reading, and user interaction) are exempt from delegation gating.
+- Strict Stop gate requires completed successful work-producing Agy calls (exit code 0 with non-empty output), bounded with loop cap and `stop_hook_active` protection. Broken, missing, or quota-depleted Agy failures must be surfaced to the user.
+- Unambiguous manual mode switching ("switch/set Agy mode to strict/soft") allows later changes while ignoring quoted documentation or ordinary words.
+- Added SessionStart, PostToolUse, and Stop hook bindings to Codex `hooks/hooks.json` and Claude `claude/hooks/hooks.json`.
+- Added safe one-shot recovery for Agy's known empty-response/exit-3 condition: resume the same conversation for its digest, or retry only explicitly read-only work when no conversation ID exists; never blindly repeat writes.
+- Bounded review idleness, kept reviewers in the selected repository, hardened strict command/response parsing, and made `agy-trace` select a working Python 3.9+ interpreter on Windows.
+- Replaced the oversized routine regression script with a critical-only runner; deep diagnostics remain opt-in instead of running on every change.
+
 ## 0.30.0 — User-controlled Gemini quota handling
 
 - Renamed the project and repository to **Polyphony**, introduced the new branded hero

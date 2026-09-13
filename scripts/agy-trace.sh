@@ -34,6 +34,20 @@ set -euo pipefail
 # Override for tests; real location is agy's brain dir.
 BRAIN="${AGY_BRAIN_DIR:-$HOME/.gemini/antigravity-cli/brain}"
 
+PY=()
+if [ -n "${AGY_BRIDGE_PYTHON:-}" ] && "$AGY_BRIDGE_PYTHON" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)' >/dev/null 2>&1; then
+  PY=("$AGY_BRIDGE_PYTHON")
+elif command -v python3 >/dev/null 2>&1 && python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)' >/dev/null 2>&1; then
+  PY=(python3)
+elif command -v py >/dev/null 2>&1 && py -3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)' >/dev/null 2>&1; then
+  PY=(py -3)
+elif command -v python >/dev/null 2>&1 && python -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)' >/dev/null 2>&1; then
+  PY=(python)
+else
+  echo "agy-trace: Python 3 not found (set AGY_BRIDGE_PYTHON to its executable)" >&2
+  exit 3
+fi
+
 die()   { echo "agy-trace: $*" >&2; exit 1; }
 usage() { sed -n '/^# Usage:/,/^# Exit codes:/p' "$0" | sed 's/^# \{0,1\}//'; exit 0; }
 
@@ -82,7 +96,7 @@ list_recent() {
 # surface for a delegation — step-type counts plus every command that failed.
 audit() { # $1 = transcript path
   echo "# audit $1"
-  python3 - "$1" <<'PY'
+  "${PY[@]}" - "$1" <<'PY'
 import json, sys, collections
 counts, failures, steps = collections.Counter(), [], 0
 with open(sys.argv[1], encoding="utf-8", errors="replace") as fh:
@@ -117,7 +131,7 @@ PY
 
 pretty() { # $1 = transcript path
   echo "# $1"
-  python3 - "$1" <<'PY'
+  "${PY[@]}" - "$1" <<'PY'
 import json, sys
 path = sys.argv[1]
 with open(path, encoding="utf-8", errors="replace") as fh:

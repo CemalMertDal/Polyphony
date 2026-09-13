@@ -20,6 +20,7 @@ MAX_BYTES="${AGY_REVIEW_MAX_BYTES:-49152}"
 CHUNK_BYTES="${AGY_REVIEW_CHUNK_BYTES:-12000}"
 PART_OUTPUT="${AGY_REVIEW_PART_OUTPUT_BYTES:-3500}"
 MAX_OUTPUT="${AGY_REVIEW_MAX_OUTPUT_CHARS:-8000}"
+REVIEW_IDLE_TIMEOUT="${AGY_REVIEW_IDLE_TIMEOUT:-180}"
 
 usage() {
   cat <<'EOF'
@@ -72,10 +73,12 @@ case "$MAX_BYTES" in ''|*[!0-9]*) die "AGY_REVIEW_MAX_BYTES must be an integer" 
 case "$CHUNK_BYTES" in ''|*[!0-9]*) die "AGY_REVIEW_CHUNK_BYTES must be an integer" ;; esac
 case "$PART_OUTPUT" in ''|*[!0-9]*) die "AGY_REVIEW_PART_OUTPUT_BYTES must be an integer" ;; esac
 case "$MAX_OUTPUT" in ''|*[!0-9]*) die "AGY_REVIEW_MAX_OUTPUT_CHARS must be an integer" ;; esac
+case "$REVIEW_IDLE_TIMEOUT" in ''|*[!0-9]*) die "AGY_REVIEW_IDLE_TIMEOUT must be an integer" ;; esac
 [ "$MAX_BYTES" -gt 0 ] || die "AGY_REVIEW_MAX_BYTES must be greater than zero"
 [ "$CHUNK_BYTES" -gt 0 ] || die "AGY_REVIEW_CHUNK_BYTES must be greater than zero"
 [ "$PART_OUTPUT" -gt 0 ] || die "AGY_REVIEW_PART_OUTPUT_BYTES must be greater than zero"
 [ "$MAX_OUTPUT" -gt 0 ] || die "AGY_REVIEW_MAX_OUTPUT_CHARS must be greater than zero"
+[ "$REVIEW_IDLE_TIMEOUT" -gt 0 ] || die "AGY_REVIEW_IDLE_TIMEOUT must be greater than zero"
 [ -d "$DIR" ] || die "directory not found: $DIR"
 [ -x "$DELEGATE" ] || die "delegation wrapper is not executable: $DELEGATE"
 
@@ -148,7 +151,13 @@ EOF
 }
 
 run_review() { # payload file, output file, byte limit
-  (cd "$TMP" && AGY_DELEGATE_READ_ONLY=1 "$DELEGATE" --tier "$TIER" --digest --timeout "$TIMEOUT" - <"$1" >"$2")
+  # Keep the reviewer in the actual repository. Running from the temporary payload
+  # directory made models search the whole user profile when they ignored the
+  # no-tools instruction, producing hundreds of irrelevant steps and apparent hangs.
+  # A review-specific idle ceiling also bounds the agy/ConPTY case where a final
+  # transcript is written but the CLI process fails to close.
+  (cd "$ROOT" && AGY_DELEGATE_READ_ONLY=1 "$DELEGATE" --tier "$TIER" --digest \
+    --timeout "$TIMEOUT" --idle-timeout "$REVIEW_IDLE_TIMEOUT" - <"$1" >"$2")
   RC=$?
   [ "$RC" -eq 0 ] || { echo "agy-review: delegation failed (exit $RC)" >&2; return "$RC"; }
   SIZE="$(LC_ALL=C wc -c <"$2" | tr -d '[:space:]')"

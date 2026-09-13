@@ -39,6 +39,41 @@ else
   exit 0
 fi
 
+# Must have a usable session id; if none, emit nothing and exit cleanly
+# so it cannot contradict strict/pending enforcement.
+SESSION_ID="$(printf '%s' "$IN" | "${PY_CMD[@]}" -c 'import json,sys
+try:
+    val = json.load(sys.stdin).get("session_id")
+    if isinstance(val, str) and val.strip():
+        print(val.strip())
+except Exception: pass' 2>/dev/null || true)"
+[ -n "$SESSION_ID" ] || exit 0
+
+ACTIVE_MODE="$( "${PY_CMD[@]}" -c 'import hashlib,json,os,sys,tempfile
+sid = sys.argv[1]
+h = hashlib.sha256(sid.encode("utf-8","replace")).hexdigest()[:24]
+d = os.environ.get("AGY_ROUTING_STATE_DIR")
+if not d:
+    for env_var in ("PLUGIN_DATA", "CLAUDE_PLUGIN_DATA"):
+        val = os.environ.get(env_var)
+        if val:
+            d = os.path.join(val, "agy-routing")
+            break
+if not d:
+    d = os.path.join(tempfile.gettempdir(), "claude-agy-routing")
+p = os.path.join(d, f"{h}.json")
+try:
+    s = json.load(open(p, encoding="utf-8"))
+    print(s.get("mode") or "pending")
+except Exception:
+    print("pending")' "$SESSION_ID" 2>/dev/null || true )"
+
+# When strict mode is active or pending, strict routing is enforced by agy_opportunity_reminder.py.
+# Do not emit contradictory "THE JUDGMENT IS YOURS" context; defer to the active mode.
+if [ "$ACTIVE_MODE" = "strict" ] || [ "$ACTIVE_MODE" = "pending" ]; then
+  exit 0
+fi
+
 PROMPT="$(printf '%s' "$IN" | "${PY_CMD[@]}" -c 'import json,sys
 try: print(json.load(sys.stdin).get("prompt",""))
 except Exception: pass' 2>/dev/null || true)"

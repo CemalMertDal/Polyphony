@@ -63,7 +63,7 @@ class McpAdapterTests(unittest.TestCase):
                 self.assertEqual(self.wrapper(), expected)
 
     def test_packaged_timeout_policy_allows_long_codex_and_claude_calls(self):
-        config = json.loads((ROOT / "codex" / ".mcp.json").read_text(encoding="utf-8"))
+        config = json.loads((ROOT / ".mcp.json").read_text(encoding="utf-8"))
         server = config["mcpServers"]["antigravity"]
         self.assertEqual(server["cwd"], ".")
         self.assertEqual(server["args"], ["./codex/mcp_server.py"])
@@ -160,10 +160,10 @@ class McpAdapterTests(unittest.TestCase):
 
     def test_server_version_matches_manifests(self):
         response = mcp.handle_request({"id": 1, "method": "initialize", "params": {}})
-        self.assertEqual(response["result"]["serverInfo"]["version"], "0.30.0")
+        self.assertEqual(response["result"]["serverInfo"]["version"], "0.31.0")
         for manifest in (".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
             data = json.loads((ROOT / manifest).read_text(encoding="utf-8"))
-            self.assertEqual(data["version"], "0.30.0")
+            self.assertEqual(data["version"], "0.31.0")
 
     def test_exit_code_stdout_and_stderr_are_preserved(self):
         def failed(argv, **kwargs):

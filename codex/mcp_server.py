@@ -493,7 +493,7 @@ def handle_request(req: dict) -> dict | None:
             "result": {
                 "protocolVersion": requested or PROTOCOL_VERSION,
                 "capabilities": {"tools": {"listChanged": False}},
-                "serverInfo": {"name": "polyphony", "version": "0.30.0"},
+                "serverInfo": {"name": "polyphony", "version": "0.31.0"},
             },
         }
     if method == "notifications/initialized":

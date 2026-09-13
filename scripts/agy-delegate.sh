@@ -695,7 +695,7 @@ set -e
 # Replaces OUT with the model's text so the stdout contract is unchanged, exposes
 # the structured error for classification, and reports token usage on stderr.
 # Any parse failure falls back to treating OUT as plain text (never fatal).
-JSON_STATUS=""; JSON_ERROR=""
+JSON_STATUS=""; JSON_ERROR=""; JSON_CONVERSATION=""
 # Glob, not ${OUT//[...]/}: stripping the whole string to test emptiness is minutes-to-
 # hours at tens of KB on macOS /bin/bash 3.2 (n^~2.6); the glob stops at the first hit.
 if [ "$JSON_MODE" -eq 1 ] && [[ "$OUT" = *[!$' \t\n\r']* ]]; then
@@ -748,6 +748,7 @@ PY
   if [ -n "$meta" ]; then
     # `status` is a bare enum with no quotes inside it, so sed is safe there.
     JSON_STATUS="$(printf '%s' "$meta" | sed -n 's/.*"status": *"\([^"]*\)".*/\1/p')"
+    JSON_CONVERSATION="$(printf '%s' "$meta" | sed -n 's/.*"conversation_id": *"\([^"]*\)".*/\1/p')"
     JSON_ERROR="$(cat "$JERR" 2>/dev/null)"
     OUT="$(cat "$RESP" 2>/dev/null)"
     printf 'AGY_USAGE %s\n' "$meta" >&2
@@ -757,6 +758,38 @@ PY
   fi
   rm -f "$RESP" "$JERR"
 fi
+
+# Agy can occasionally finish a turn (and report usage/conversation metadata) but
+# leave the final response empty. Blindly repeating a write task could duplicate
+# edits. Recover once by resuming the same conversation and asking only for its
+# final digest. If no conversation id exists, a single full retry is allowed only
+# for callers that explicitly declared the operation read-only (scout/review).
+recover_empty_output() {
+  [ "${AGY_EMPTY_RECOVERY:-0}" != 1 ] || return 125
+  local recovery_prompt recovery_timeout recovery_idle rc
+  local -a retry_args
+  recovery_prompt="The previous turn completed without a final response. Do not redo any work. Return only the final compact result/digest now."
+  recovery_timeout="${AGY_EMPTY_RECOVERY_TIMEOUT:-5m}"
+  recovery_idle="${AGY_EMPTY_RECOVERY_IDLE_TIMEOUT:-180}"
+  retry_args=(--model "$MODEL" --timeout "$recovery_timeout" --idle-timeout "$recovery_idle")
+  [ "$YOLO" -eq 0 ] || retry_args+=(--yolo)
+  [ -z "$MODE" ] || retry_args+=(--mode "$MODE")
+  for d in "${ADD_DIRS[@]:-}"; do [ -z "$d" ] || retry_args+=(--dir "$d"); done
+
+  if [ -n "$JSON_CONVERSATION" ]; then
+    retry_args+=(--conversation "$JSON_CONVERSATION" --digest)
+    AGY_EMPTY_RECOVERY=1 "$HERE/agy-delegate.sh" "${retry_args[@]}" "$recovery_prompt"
+    return $?
+  fi
+  if [ "${AGY_DELEGATE_READ_ONLY:-0}" = 1 ]; then
+    [ "$DIGEST" -eq 0 ] || retry_args+=(--digest)
+    # Keep large diff/scout payloads out of the Windows argv limit. The original
+    # stdin has already been consumed, so replay the in-memory prompt explicitly.
+    printf '%s' "$PROMPT" | AGY_EMPTY_RECOVERY=1 "$HERE/agy-delegate.sh" "${retry_args[@]}" -
+    return $?
+  fi
+  return 125
+}
 
 # Adapter-owned failures preserve the public wrapper codes and partial timeout output.
 if on_windows_native; then
@@ -776,8 +809,9 @@ if on_windows_native; then
       signal BRIDGE_UNAVAILABLE "Python or agy-headless-bridge unavailable"
       exit 16 ;;
     3)
-      [ -s "$ERR" ] && cat "$ERR" >&2
       quota_failure_check 0 || true
+      if recover_empty_output; then exit 0; else recovery_rc=$?; [ "$recovery_rc" -eq 125 ] || exit "$recovery_rc"; fi
+      [ -s "$ERR" ] && cat "$ERR" >&2
       echo "agy-delegate: agy returned empty output through ConPTY (model='$MODEL')" >&2
       exit 3 ;;
   esac
@@ -858,6 +892,7 @@ if [[ "$OUT" != *[!$' \t\n\r']* ]]; then   # same glob as above, not the quadrat
   esac
   shopt -u nocasematch
   quota_failure_check 0 || true
+  if recover_empty_output; then exit 0; else recovery_rc=$?; [ "$recovery_rc" -eq 125 ] || exit "$recovery_rc"; fi
   echo "agy-delegate: agy returned empty output (model='$MODEL')" >&2
   exit 3
 fi

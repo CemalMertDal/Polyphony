@@ -60,7 +60,23 @@ codex plugin marketplace add https://github.com/GryAsl/Polyphony
 codex plugin add antigravity@polyphony
 ```
 
-Start a new Codex task after installation. The plugin provides direct MCP tools for delegation, scouting, review, research, media, jobs, quota control, traces, diagnostics, migration, Cloud debugging, and cost comparison. Optional hooks in `/hooks` must be reviewed and trusted separately.
+Start a new Codex task after installation. The plugin provides direct MCP tools for delegation, scouting, review, research, media, jobs, quota control, traces, diagnostics, migration, Cloud debugging, and cost comparison. Note that Codex plugin hooks must be reviewed and trusted whenever their definitions change.
+
+## Routing modes
+
+Polyphony provides two session-level routing modes:
+
+- **Always use Agy (strict)**: Substantive native tool calls (discovery, code edits, diff review, tests/build/lint diagnosis, Git operations, web research, media analysis, native subagents, and general terminal automation) are blocked with PreToolUse denials. The turn requires a completed, successful Agy work call (exit code 0 with non-empty output) before stopping. External or unproven connectors remain advisory.
+- **Use Agy when appropriate (soft)**: Non-blocking advisory reminders; native execution remains permitted.
+
+**Default & session start:** Newly started, resumed, cleared, or forked sessions begin with routing mode unanswered and effective strict behavior (preserved across compact). At the first user-facing turn, the agent asks exactly one concise question presenting both canonical choices:
+- Always use Agy (strict)
+- Use Agy when appropriate (soft)
+The user's initial substantive request remains in conversation and is resumed immediately after the choice.
+
+**Control-plane exceptions:** Presenting the mode question, mode changes, quota checks/choices, job/trace/doctor/cancel management, bootstrap policy reading, and conversational user interaction are exempt from delegation gating.
+
+**Manual switching:** Explicitly switch anytime with unambiguous phrasing such as "switch Agy mode to strict" or "set Agy mode to soft".
 
 ## Model routing
 
