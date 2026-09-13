@@ -18,12 +18,15 @@ class VendoredBridgeTests(unittest.TestCase):
     def test_v121_source_hashes_and_license(self):
         expected = {
             SRC / "agy_headless_bridge" / "bridge.py":
-                "a5e7df980cea50c7354a1884b4ca9f62bd9f6b866228c0c017a23650e29cc69f",
+                "8cfc264c8cf1808a58ce226e2443eb6b3c0af0abaaf7d0b43afc3777172966eb",
             SRC / "agy_headless_bridge" / "mcp_server.py":
-                "d3af8f39a909ddf57987bf305b9198f3eb9bfb98cb0f641e21d45b172363977d",
+                "3007479cbe244652668ed1508e5f6d623c750ae9d7b01cc8584f72aaf31d2e7b",
         }
         for path, digest in expected.items():
-            self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), digest)
+            # Git checkouts may use LF (Linux CI) or CRLF (native Windows). The
+            # vendored source identity is line-ending independent for this pin.
+            normalized = path.read_bytes().replace(b"\r\n", b"\n")
+            self.assertEqual(hashlib.sha256(normalized).hexdigest(), digest)
         self.assertIn("MIT License", (VENDOR / "LICENSE").read_text(encoding="utf-8"))
 
     def test_package_imports_from_vendor_tree(self):
