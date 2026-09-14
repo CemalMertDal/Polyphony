@@ -1090,6 +1090,11 @@ def handle_session_start(data: dict, session_id: str) -> None:
         return
 
     state = _default_state()
+    # SessionStart already injects the single routing-choice prompt. Mark it
+    # as presented so UserPromptSubmit does not inject a second copy in the
+    # same opening turn (which previously produced duplicate Turkish/English
+    # questions in Claude desktop).
+    state["question_presented"] = True
     _write_state(session_id, state)
     _emit_context("SessionStart", SESSION_START_CONTEXT)
 
@@ -1134,7 +1139,12 @@ def handle_user_prompt_submit(data: dict, state: dict, session_id: str, turn_id:
                 "Substantive work may be completed natively or delegated. Delegation reminders are advisory."
             )
         else:
-            context_to_emit = PENDING_PROMPT_CONTEXT
+            if state.get("question_presented"):
+                # The SessionStart context already asked for the one choice;
+                # do not repeat it when the first user prompt arrives.
+                context_to_emit = ""
+            else:
+                context_to_emit = PENDING_PROMPT_CONTEXT
     else:
         mode_target, is_sole = parse_mode_switch_intent(prompt)
         if mode_target == "strict":
