@@ -82,6 +82,7 @@ DIGEST=0
 MODE=""
 ADD_DIRS=()
 PROMPT=""
+PROMPT_FROM_STDIN=0
 CONTINUE=0
 CONV_ID=""
 PRINT_CMD=0
@@ -207,6 +208,16 @@ is_gemini_model() {
   local m
   m="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')"
   case "$m" in *gemini*) return 0 ;; *) return 1 ;; esac
+}
+
+# Sonnet 4.6 is used only after the user explicitly approves quota fallback.
+# Its agent runtime may otherwise try to hand the task to another agent and return
+# before that nested work finishes. Give it a direct-execution contract and require
+# a deterministic receipt so rc=0 alone can never masquerade as completed work.
+is_sonnet_46_model() {
+  local m
+  m="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]' | tr -d ' ._-')"
+  case "$m" in *claude*sonnet*46*) return 0 ;; *) return 1 ;; esac
 }
 
 # Run the zero-token /usage quota helper. Tests may replace it with one executable.
@@ -404,7 +415,7 @@ while [ $# -gt 0 ]; do
     -m|--model)     need "$#" "$1"; MODEL="$2"; shift 2 ;;
     --print-command) PRINT_CMD=1; shift ;;          # dry run: show the resolved agy command
     -h|--help)      usage ;;
-    -)              PROMPT="$(cat)"; shift ;;       # read prompt from stdin
+    -)              PROMPT="$(cat)"; PROMPT_FROM_STDIN=1; shift ;; # read prompt from stdin
     --)             shift; PROMPT="${*:-}"; break ;;
     -*)             die "unknown option '$1'" ;;
     *)              PROMPT="$*"; break ;;            # rest is the prompt
@@ -491,6 +502,35 @@ if [ "$DIGEST" -eq 1 ]; then
   PROMPT="$PROMPT
 
 OUTPUT CONTRACT (digest): reply with ONLY a compact digest — short bullets (findings / decisions / errors, with file:line references where useful). NO full file contents, NO raw logs, NO long code blocks. End with exactly one line: DIGEST: <one-sentence summary>."
+fi
+
+if is_sonnet_46_model "$MODEL"; then
+  PROMPT="$PROMPT
+
+SONNET 4.6 DIRECT-EXECUTION CONTRACT (mandatory): Complete the assigned task yourself in this worker. Do not create, invoke, or delegate any part of the task to a sub-agent, nested agent, team, background agent, or another conversation. Do not merely announce future work or waiting. Do not claim completion until the requested work and its stated verification are actually finished. If you cannot complete the task directly, report failure instead of success.
+
+End the response with exactly these two machine-readable lines (after any requested DIGEST line):
+POLYPHONY_FALLBACK_STATUS: COMPLETED
+POLYPHONY_FALLBACK_EVIDENCE: <concise concrete evidence such as changed files and verification results, or read-only findings>
+Use POLYPHONY_FALLBACK_STATUS: FAILED when the task was not completed."
+fi
+
+# Inline prompts are ultimately embedded in a `bash -c`/CreateProcess command by
+# Claude's Bash tool. Keep a conservative transport budget so a valid-looking
+# delegation cannot fail before agy starts with `unexpected EOF` or an argv limit.
+# Stdin (`agy-delegate ... -`) and task files are explicitly exempt: the prompt
+# then travels as file data and may be larger, although digest/splitting is still
+# recommended for model quality and token cost.
+if [ "$PROMPT_FROM_STDIN" -eq 0 ]; then
+  PROMPT_MAX_CHARS="${AGY_PROMPT_MAX_CHARS:-24000}"
+  PROMPT_MAX_WORDS="${AGY_PROMPT_MAX_WORDS:-3500}"
+  case "$PROMPT_MAX_CHARS" in ''|*[!0-9]*|0) PROMPT_MAX_CHARS=24000 ;; esac
+  case "$PROMPT_MAX_WORDS" in ''|*[!0-9]*|0) PROMPT_MAX_WORDS=3500 ;; esac
+  PROMPT_CHARS="$(LC_ALL=C printf '%s' "$PROMPT" | wc -c | tr -d '[:space:]')"
+  PROMPT_WORDS="$(printf '%s' "$PROMPT" | wc -w | tr -d '[:space:]')"
+  if [ "$PROMPT_CHARS" -gt "$PROMPT_MAX_CHARS" ] || [ "$PROMPT_WORDS" -gt "$PROMPT_MAX_WORDS" ]; then
+    die "inline prompt exceeds safe budget (${PROMPT_CHARS} chars/${PROMPT_WORDS} words; limits ${PROMPT_MAX_CHARS} chars/${PROMPT_MAX_WORDS} words). Compress/split the task, use independent Agy workers, or pipe it via stdin: agy-delegate [options] -"
+  fi
 fi
 
 # --- assemble agy args ---
@@ -895,6 +935,19 @@ if [[ "$OUT" != *[!$' \t\n\r']* ]]; then   # same glob as above, not the quadrat
   if recover_empty_output; then exit 0; else recovery_rc=$?; [ "$recovery_rc" -eq 125 ] || exit "$recovery_rc"; fi
   echo "agy-delegate: agy returned empty output (model='$MODEL')" >&2
   exit 3
+fi
+
+
+# A Sonnet fallback result is not trusted merely because agy returned rc=0 and text.
+# The direct-execution receipt proves that this worker itself reached a terminal
+# outcome; a promise to delegate/wait therefore becomes a visible non-zero failure.
+if is_sonnet_46_model "$MODEL"; then
+  if ! printf '%s\n' "$OUT" | grep -Eq '^POLYPHONY_FALLBACK_STATUS:[[:space:]]*COMPLETED[[:space:]]*$' \
+     || ! printf '%s\n' "$OUT" | grep -Eq '^POLYPHONY_FALLBACK_EVIDENCE:[[:space:]]*[^[:space:]].*$'; then
+    echo "agy-delegate: Sonnet 4.6 returned exit 0 without a valid direct-completion receipt; treating the result as incomplete." >&2
+    signal AGY_INCOMPLETE "Sonnet 4.6 did not prove direct completion; nested delegation or premature success is possible"
+    exit 2
+  fi
 fi
 
 # Digest-size guard: the cost saving depends on the conductor ingesting a DIGEST,

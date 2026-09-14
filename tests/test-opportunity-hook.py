@@ -202,6 +202,26 @@ class OpportunityHookTests(unittest.TestCase):
         ext_data = json.loads(ext_out)
         self.assertNotIn("permissionDecision", ext_data["hookSpecificOutput"])
 
+    def test_strict_allows_agy_job_with_safe_prompt_plumbing(self):
+        session = str(uuid.uuid4())
+        self.set_mode(session, "Always use Agy (strict)")
+        commands = (
+            "cd '/tmp/repo' && TASK=\"$(cat '/tmp/task.txt')\" && agy-job start --tier flash --dir . --yolo \"$TASK\"",
+            "$task = Get-Content -Raw 'C:/tmp/task.txt'; agy-job start --tier flash --dir . --yolo $task",
+        )
+        for command in commands:
+            with self.subTest(command=command):
+                output = self.invoke({
+                    "hook_event_name": "PreToolUse",
+                    "session_id": session,
+                    "tool_name": "exec_command",
+                    "tool_input": {"cmd": command},
+                })
+                data = json.loads(output)
+                hook = data["hookSpecificOutput"]
+                self.assertNotEqual(hook.get("permissionDecision"), "deny")
+                self.assertIn("Agy command accepted", hook.get("additionalContext", ""))
+
     def test_ask_user_question_result_persists_mode_before_next_tool(self):
         """Claude desktop returns the routing answer as PostToolUse, not a user prompt."""
         for answer, expected in (
@@ -282,6 +302,25 @@ class OpportunityHookTests(unittest.TestCase):
             "last_assistant_message": "All done!",
         })
         self.assertEqual(stop_out, "")
+
+    def test_oversized_agy_prompt_is_rejected_with_split_guidance(self):
+        """Inline Bash prompts must not reach the Windows shell size/quoting trap."""
+        session = str(uuid.uuid4())
+        self.set_mode(session, "Use Agy when appropriate (soft)")
+        prompt = "word " * 3501
+        output = self.invoke({
+            "hook_event_name": "PreToolUse",
+            "session_id": session,
+            "tool_name": "exec_command",
+            "tool_input": {"cmd": "agy-delegate --tier flash '" + prompt + "'"},
+        })
+        data = json.loads(output)
+        hook = data["hookSpecificOutput"]
+        self.assertEqual(hook.get("permissionDecision"), "deny")
+        reason = hook.get("permissionDecisionReason", "")
+        self.assertIn("safe inline budget", reason)
+        self.assertIn("parallel Agy workers", reason)
+        self.assertIn("agy-delegate ... -", reason)
 
     # --- 5. Control-Plane Exemptions ---
 

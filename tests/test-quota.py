@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -115,6 +116,24 @@ class QuotaTests(unittest.TestCase):
         self.assertEqual(parsed["7d"]["remaining"], 9.5)
         self.assertEqual(parsed["7d"]["reset_at"], "resets in 2 days")
         self.assertEqual(parsed["5h"]["reset_at"], "")
+
+    def test_live_query_accepts_complete_usage_on_stderr_with_renderer_exit(self):
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=1,
+            stdout="",
+            stderr=(
+                "renderer warning\n"
+                "Gemini Models  Weekly Limit Remaining  81%  reset soon\n"
+                "Gemini Models  Five Hour Limit Remaining  64%  reset later\n"
+            ),
+        )
+        with mock.patch.object(quota, "_bash", return_value="bash"), mock.patch.object(
+            quota.subprocess, "run", return_value=completed
+        ):
+            measured = quota._query_live(None)
+        self.assertEqual(measured["7d"]["remaining"], 81.0)
+        self.assertEqual(measured["5h"]["remaining"], 64.0)
 
 
 if __name__ == "__main__":

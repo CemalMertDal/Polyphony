@@ -116,6 +116,15 @@ agy-quota --force
 
 Routine calls default to 30 minutes. The Codex MCP transport allows 35 minutes so a healthy long-running worker can return before the transport closes. Use `--timeout` when a task needs a different wrapper deadline.
 
+For substantial work, keep that generous budget: use `--timeout 45m` or `--timeout 60m`
+for broad multi-file, Unity, or build-heavy tasks. Short timeouts are intended only for
+health probes; the Windows idle timeout is normally derived from the hard deadline.
+
+Inline Agy prompts are capped at 24,000 characters or 3,500 words to stay below Windows
+`bash -c`/CreateProcess and shell-quoting limits. Oversized work is rejected before launch;
+compress it into a scoped digest contract, split independent work across Agy workers, or
+pipe a larger prompt through stdin (`agy-delegate [options] -`) / a task file.
+
 ## Gemini quota control
 
 The plugin reads Agy's zero-token `/usage` response and tracks both the Gemini **5h** and
@@ -133,6 +142,11 @@ Record the choice with `/antigravity:quota sonnet|wait`, `agy-quota --decision
 sonnet|wait`, or the Codex `quota` MCP tool. `agy-job cancel-all` covers plugin-managed
 jobs; the host must cancel any stalled tool tasks it started. Waiting resumes Gemini only
 after both windows are above 2%.
+
+For a user-approved Sonnet 4.6 fallback, Polyphony requires the worker to execute the task
+directly without spawning another agent. A non-empty response and exit code 0 are not
+enough: the wrapper also requires a machine-readable completion status and concise concrete
+evidence, preventing a delegation promise from being mistaken for completed work.
 
 The tracker emits a one-time notice when either window crosses 75%, 50%, 25%, or 10%
 remaining. A threshold is not announced again until that quota window resets above it.

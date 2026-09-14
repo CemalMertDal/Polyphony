@@ -140,10 +140,18 @@ def _query_live(raw_file: str | None) -> dict[str, dict[str, Any]]:
         timeout=90,
         check=False,
     )
-    if completed.returncode != 0:
+    # Depending on the Agy build and terminal mode, `/usage` can be rendered on
+    # stderr (and a harmless renderer warning can make the process exit non-zero)
+    # even though both quota lines are present.  Parse both streams first and
+    # accept a complete measurement; only classify it as failed when the data is
+    # genuinely missing.  This keeps quota routing from entering a false
+    # "depleted/unknown" state because of presentation noise.
+    combined = "\n".join(part for part in (completed.stdout, completed.stderr) if part)
+    try:
+        return parse_usage(combined)
+    except ValueError:
         detail = " ".join(completed.stderr.split())[-400:]
         raise RuntimeError(f"Agy /usage failed with exit {completed.returncode}: {detail}")
-    return parse_usage(completed.stdout)
 
 
 def _fresh(state: dict[str, Any], max_age: int) -> bool:

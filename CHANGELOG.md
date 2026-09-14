@@ -3,6 +3,22 @@
 All notable changes to **Polyphony**. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions are in `.claude-plugin/plugin.json`.
 
+## 0.31.31 — Reliability and routing hardening
+
+- Make latest Flash discovery accept both tabular and JSON-style `agy models`
+  records while continuing to exclude Low and preview variants.
+- Make quota probing parse complete Gemini 5h/7d measurements from either stdout
+  or stderr, even when a renderer warning produces a non-zero `/usage` exit.
+- Add a shared 24,000-character/3,500-word inline prompt guard to the Claude/Codex
+  hook and delegate wrapper, with stdin/task-file and split-worker escape paths.
+- Require Claude Sonnet 4.6 workers to execute quota-fallback tasks directly without
+  recursive delegation, and reject exit 0 unless a completion status and concrete
+  evidence receipt prove that the assigned work actually finished.
+- Allow strict mode to run safe `cd`/prompt-file preparation followed by an Agy worker;
+  continue denying unrelated or destructive shell chains and emit a lower-risk usage hint.
+- Document generous delegation budgets (30 minutes minimum; 45–60 minutes for broad
+  multi-file work) so healthy workers are not cut off by short caller timeouts.
+
 ## 0.31.10 — Persist AskUserQuestion routing choices
 
 - Persist strict/soft selections returned by Claude Code's `AskUserQuestion` tool result before

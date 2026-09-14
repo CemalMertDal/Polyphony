@@ -64,6 +64,14 @@ MEDIA_EXTENSIONS = {
 
 POLICY_FILES = {"claude.md", "agents.md"}
 
+# Keep inline Agy commands below the practical Windows `bash -c`/CreateProcess
+# budget.  The character ceiling is authoritative (quotes, paths, and shell
+# escaping count too); the word ceiling gives agents a useful prompt-level
+# signal before a huge code dump reaches that limit.  Prompts of any size can
+# still be sent safely through `agy-delegate -` (stdin) or a task file.
+DEFAULT_AGY_PROMPT_MAX_CHARS = 24000
+DEFAULT_AGY_PROMPT_MAX_WORDS = 3500
+
 CLAUDE_ONLY_TOOLS = {
     "askuserquestion", "enterplanmode", "exitplanmode", "skill", "toolsearch",
     "todowrite", "taskcreate", "taskget", "tasklist", "taskoutput", "taskstop",
@@ -378,6 +386,73 @@ def _get_shell_command(tool_input: dict) -> str | None:
     return None
 
 
+def _limit(name: str, default: int) -> int:
+    try:
+        value = int(os.environ.get(name, str(default)))
+        return value if value > 0 else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _looks_like_agy_invocation(tool_name: str, tool_input: dict) -> bool:
+    lowered = tool_name.lower()
+    if lowered.startswith("mcp__antigravity__"):
+        return True
+    if lowered not in SHELL_TOOL_NAMES:
+        return False
+    command = _get_shell_command(tool_input) or ""
+    return bool(re.search(r"(?:^|[\s/])agy(?:[-_](?:delegate|scout|review|job|media|quota|trace|doctor|migrate))?\b", command, re.IGNORECASE))
+
+
+def _agy_prompt_budget_violation(tool_name: str, tool_input: dict) -> str | None:
+    """Return a deterministic safety denial for oversized inline Agy prompts.
+
+    Claude's Bash tool constructs a new `bash -c` command.  A long prompt with
+    embedded quotes can therefore fail before `agy-delegate` starts (the common
+    symptom is `unexpected EOF while looking for matching \'`).  Codex MCP calls
+    are checked too so both hosts share the same compact-prompt contract.
+    """
+    if not _looks_like_agy_invocation(tool_name, tool_input):
+        return None
+
+    lowered = tool_name.lower()
+    prompt = ""
+    if lowered.startswith("mcp__antigravity__"):
+        for key in ("prompt", "question", "query", "goal"):
+            value = tool_input.get(key)
+            if isinstance(value, str) and value.strip():
+                prompt = value
+                break
+    else:
+        command = _get_shell_command(tool_input) or ""
+        # If shell quoting is already malformed, tokenisation is impossible;
+        # use the raw command length, which is precisely what `bash -c` limits.
+        parsed = parse_single_agy_shell_command(command)
+        if parsed is None:
+            prompt = command
+        else:
+            _, tokens = parsed
+            if tokens and tokens[-1] != "-":
+                prompt = tokens[-1]
+
+    if not prompt:
+        return None
+    max_chars = _limit("AGY_PROMPT_MAX_CHARS", DEFAULT_AGY_PROMPT_MAX_CHARS)
+    max_words = _limit("AGY_PROMPT_MAX_WORDS", DEFAULT_AGY_PROMPT_MAX_WORDS)
+    chars = len(prompt)
+    words = len(prompt.split())
+    if chars <= max_chars and words <= max_words:
+        return None
+    return (
+        "Agy prompt exceeds the safe inline budget "
+        f"({chars:,} chars/{words:,} words; limits {max_chars:,} chars/{max_words:,} words). "
+        "Do not retry the same oversized command. Compress the contract and request a "
+        "digest, split independent work across sequential or parallel Agy workers, or "
+        "pass the prompt via stdin/task file (`agy-delegate ... -`) so shell quoting and "
+        "Windows command-line limits cannot truncate it."
+    )
+
+
 def _has_unquoted_newline(cmd: str) -> bool:
     in_single = False
     in_double = False
@@ -474,8 +549,92 @@ def parse_single_agy_shell_command(cmd: str) -> tuple[str, list[str]] | None:
     return None
 
 
+def _agy_compound_command(cmd: str) -> tuple[str, list[str]] | None:
+    """Recognize a safe Agy command with prompt-plumbing prelude.
+
+    Claude commonly prepares a task with `cd`, `cat`/`Get-Content`, and an
+    environment assignment before invoking `agy-job`.  The old classifier saw
+    the preparation command first and denied the entire operation in strict
+    mode.  Permit only those non-mutating heads; arbitrary shell chains (rm,
+    git reset, network commands, etc.) still require the normal strict route.
+    """
+    if not cmd or not re.search(
+        r"(?:^|[\s/])agy(?:[-_](?:delegate|scout|review|job|media|quota|trace|doctor|migrate))?\b",
+        cmd,
+        re.IGNORECASE,
+    ):
+        return None
+    if "\n" in cmd or "\r" in cmd:
+        return None
+    try:
+        lexer = shlex.shlex(cmd.strip(), posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+    except Exception:
+        return None
+    if not tokens:
+        return None
+
+    # Only sequencing operators are accepted for prompt preparation. Pipelines,
+    # backgrounding, redirection, and conditional fallbacks can hide unrelated
+    # shell work and therefore remain strict-mode denials.
+    separators = {"&&", ";"}
+    forbidden_controls = {"||", "|", "&", ">", "<"}
+    segments: list[list[str]] = [[]]
+    for token in tokens:
+        if token in separators:
+            if segments[-1]:
+                segments.append([])
+            continue
+        segments[-1].append(token)
+    segments = [segment for segment in segments if segment]
+    if not segments:
+        return None
+
+    allowed_heads = {"cd", "cat", "get-content", "type"}
+    agy_wrapper = ""
+    agy_tokens: list[str] = []
+    compound_work_wrappers = {
+        "agy", "agy-delegate", "agy-scout", "agy-review", "agy-job",
+        "agy-media", "agy-migrate", "agy-cost-compare", "cloud-debug",
+    }
+    for segment in segments:
+        head = Path(segment[0]).stem.lower()
+        if head in APPROVED_AGY_WRAPPERS:
+            if head not in compound_work_wrappers:
+                return None
+            # Shell operators/process substitution must not hide behind an Agy
+            # token.  A quoted variable such as "$TASK" is fine; standalone
+            # operators and `$(` command substitution are not.
+            if any(
+                token in {"$", "(", ")", ">", "<", "`"}
+                or any(control in token for control in ("`", "\r", "\n"))
+                or "$(" in token
+                for token in segment[1:]
+            ):
+                return None
+            agy_wrapper, agy_tokens = head, segment
+            continue
+        if head in allowed_heads:
+            if any(token in forbidden_controls or "`" in token for token in segment[1:]):
+                return None
+            continue
+        # POSIX assignment: TASK=$(cat file), TASK=$(Get-Content file)
+        if len(segment) == 1 and re.match(
+            r"^[A-Za-z_][A-Za-z0-9_]*=\$\((?:cat|get-content|type)\b",
+            segment[0],
+            re.IGNORECASE,
+        ):
+            continue
+        # PowerShell assignment: $task = Get-Content -Raw file
+        if len(segment) >= 3 and re.match(r"^\$?[A-Za-z_][A-Za-z0-9_]*$", segment[0]) and segment[1] == "=" and Path(segment[2]).stem.lower() in {"get-content", "type"}:
+            continue
+        return None
+    return (agy_wrapper, agy_tokens) if agy_wrapper else None
+
+
 def _classify_shell(command: str) -> str | None:
-    if parse_single_agy_shell_command(command) is not None:
+    if parse_single_agy_shell_command(command) is not None or _agy_compound_command(command) is not None:
         return None
 
     lowered = command.lower()
@@ -573,6 +732,8 @@ def is_work_producing_agy_call(tool_name: str, tool_input: dict) -> bool:
             return False
         parsed = parse_single_agy_shell_command(cmd)
         if parsed is None:
+            parsed = _agy_compound_command(cmd)
+        if parsed is None:
             return False
         wrapper, tokens = parsed
         if wrapper in {
@@ -598,7 +759,7 @@ def is_any_agy_call(tool_name: str, tool_input: dict) -> bool:
         return True
     if lowered_name in SHELL_TOOL_NAMES:
         cmd = _get_shell_command(tool_input)
-        if cmd and parse_single_agy_shell_command(cmd) is not None:
+        if cmd and (parse_single_agy_shell_command(cmd) is not None or _agy_compound_command(cmd) is not None):
             return True
     return False
 
@@ -1186,6 +1347,14 @@ def handle_pre_tool_use(data: dict, state: dict, session_id: str) -> None:
     if not isinstance(tool_input, dict):
         return
 
+    budget_error = _agy_prompt_budget_violation(tool_name, tool_input)
+    if budget_error:
+        # This is transport safety, not a routing preference: retrying the same
+        # inline command will deterministically hit the shell limit in both soft
+        # and strict sessions.  The message gives the agent safe alternatives.
+        _emit_deny("PreToolUse", budget_error)
+        return
+
     if is_control_plane_exempt(tool_name, tool_input):
         return
 
@@ -1193,6 +1362,13 @@ def handle_pre_tool_use(data: dict, state: dict, session_id: str) -> None:
         if is_work_producing_agy_call(tool_name, tool_input):
             state["is_substantive"] = True
             _write_state(session_id, state)
+        if tool_name.lower() in SHELL_TOOL_NAMES:
+            command = _get_shell_command(tool_input) or ""
+            if parse_single_agy_shell_command(command) is None and _agy_compound_command(command) is not None:
+                _emit_context(
+                    "PreToolUse",
+                    "Agy command accepted in strict mode. For lower shell-quoting risk and a smaller command, prefer a direct wrapper call or pass the task via stdin (`agy-delegate ... -`); the current command's `cd`/prompt-file preparation is allowed because the actual worker is Agy.",
+                )
         return
 
     category = _classify(tool_name, tool_input)

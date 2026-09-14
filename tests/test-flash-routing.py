@@ -54,6 +54,16 @@ gpt-oss-120b-medium\tGPT-OSS 120B (Medium)
             "gemini-3.8-flash-medium",
         )
 
+    def test_parses_jsonish_model_records(self):
+        self.assertEqual(
+            resolver.newest_model(
+                '{"name":"gemini-4.1-flash-high","family":"Gemini"},\n'
+                '{"name":"gemini-4.0-flash-medium","family":"Gemini"}',
+                "high",
+            ),
+            "gemini-4.1-flash-high",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -36,6 +36,20 @@ the selected mode before the next tool call.
 
 **Control-plane exceptions:** Presenting the mode question, mode recording/changes, quota checks/choices, job/trace/doctor/cancel management, reading bootstrap policy/config, and user interaction are exempt from delegation gating.
 
+**Prompt transport budget:** Keep every inline Agy prompt below **24,000 characters and
+3,500 words**. This is a shared safety ceiling for Claude Bash, Windows `bash -c`, and
+Codex MCP payloads. If either limit is exceeded, compress the contract and request a
+digest, split independent work across sequential/parallel workers, or pipe the prompt
+through stdin (`agy-delegate [options] -`) / a task file. Do not retry the same oversized
+inline command; Polyphony's hook and wrapper reject it before it can hit shell quoting or
+CreateProcess limits.
+
+**Timeout discipline:** Use at least the default **30-minute** hard timeout for real work;
+choose **45–60 minutes** for broad multi-file, Unity, or build-heavy delegations. Reserve
+short 1–5 minute limits for health probes. Leave the Windows idle timeout derived from the
+hard deadline unless there is evidence of a true stall, so a quiet but progressing worker
+is not killed prematurely.
+
 **Manual mode switching:** Users can explicitly change the mode at any time with unambiguous phrasing such as "switch Agy mode to strict" or "set Agy mode to soft".
 
 ## Two execution styles (pick per task)
@@ -174,6 +188,10 @@ run `agy-job cancel-all` for plugin-managed jobs, then retry; the wrapper uses e
 `claude-sonnet-4-6` until Gemini recovers. For option 2, use the host scheduling/wakeup
 facility for `agy-quota --force` every 10 minutes, do not kill workers or start Sonnet,
 and resume Gemini only when **both** windows exceed 2%. Stop after one Sonnet failure.
+The Sonnet fallback worker must complete the task directly: it may not create or invoke a
+sub-agent, promise to wait for nested work, or report success before the work and stated
+verification finish. The wrapper appends this contract and treats exit 0 as incomplete
+unless the response contains its machine-readable `COMPLETED` status plus concrete evidence.
 
 The quota tracker checks both windows on the same cadence and emits one English advisory
 when remaining quota crosses 75%, 50%, 25%, or 10%, for example: `Agy Gemini 7d quota

@@ -21,7 +21,11 @@ from agy_headless_bridge import find_agy  # noqa: E402
 
 
 SLUG = re.compile(
-    r"(?<![a-z0-9-])gemini-(\d+(?:\.\d+)+)-flash-(medium|high)(?=\s|$)",
+    # `agy models` is normally a tabular listing, but newer builds have also
+    # emitted JSON-ish records (`"name":"gemini-3.9-flash-high",`).  Use a
+    # true token boundary instead of requiring whitespace/end-of-line so both
+    # representations resolve without admitting `-preview`/`-low` variants.
+    r"(?<![a-z0-9-])gemini-(\d+(?:\.\d+)+)-flash-(medium|high)(?![a-z0-9-])",
     re.IGNORECASE,
 )
 DISPLAY = re.compile(

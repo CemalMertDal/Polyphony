@@ -138,6 +138,7 @@ mkdir -p "$EMPTY_BIN"
 cat >"$EMPTY_BIN/agy" <<'STUB'
 #!/usr/bin/env bash
 [ "${1:-}" != "--help" ] || { printf '%s\n' '--output-format'; exit 0; }
+[ -z "${AGY_FIXED_OUTPUT:-}" ] || { printf '%s\n' "$AGY_FIXED_OUTPUT"; exit 0; }
 n=0; [ ! -f "$AGY_EMPTY_COUNTER" ] || n="$(cat "$AGY_EMPTY_COUNTER")"
 n=$((n + 1)); printf '%s' "$n" >"$AGY_EMPTY_COUNTER"
 [ -z "${AGY_EMPTY_ARGS:-}" ] || printf '%s\n' "$*" >>"$AGY_EMPTY_ARGS"
@@ -207,6 +208,44 @@ if PATH="$EMPTY_BIN:$PATH" AGY_EMPTY_COUNTER="$EMPTY_COUNTER" AGY_EMPTY_ARGS="$E
   ok "empty write result resumes its conversation for digest only"
 else
   bad "conversation-based empty-output recovery"
+fi
+
+# Sonnet 4.6 quota fallback must execute directly and prove completion. A textual
+# promise to delegate is not a successful work result even when agy itself exits 0.
+if "$DELEGATE_REAL" --model 'claude-sonnet-4-6' --print-command 'edit the fixture directly' \
+  >"$TMP/sonnet-contract.out" 2>"$TMP/sonnet-contract.err" \
+  && has "$TMP/sonnet-contract.out" 'Do not create, invoke, or delegate any part of the task to a sub-agent' \
+  && has "$TMP/sonnet-contract.out" 'POLYPHONY_FALLBACK_STATUS'; then
+  ok "Sonnet receives the direct-execution and completion-receipt contract"
+else
+  bad "Sonnet direct-execution contract"
+fi
+
+set +e
+PATH="$EMPTY_BIN:$PATH" AGY_TEST_FORCE_POSIX=1 CLAUDE_PLUGIN_OPTION_STRUCTURED_OUTPUT=off \
+  AGY_FIXED_OUTPUT='I will delegate this to a sub-agent and wait for it.' \
+  "$DELEGATE_REAL" --model 'claude-sonnet-4-6' --timeout 1s 'edit the fixture directly' \
+  >"$TMP/sonnet-incomplete.out" 2>"$TMP/sonnet-incomplete.err"
+RC=$?
+set -e
+if [ "$RC" -eq 2 ] && has "$TMP/sonnet-incomplete.err" 'AGY_INCOMPLETE'; then
+  ok "Sonnet exit 0 without direct-completion receipt is rejected"
+else
+  bad "Sonnet premature-success guard"
+fi
+
+SONNET_DONE="$(printf '%s\n' \
+  'Changed fixture.txt and ran the requested check.' \
+  'POLYPHONY_FALLBACK_STATUS: COMPLETED' \
+  'POLYPHONY_FALLBACK_EVIDENCE: fixture.txt updated; targeted check passed')"
+if PATH="$EMPTY_BIN:$PATH" AGY_TEST_FORCE_POSIX=1 CLAUDE_PLUGIN_OPTION_STRUCTURED_OUTPUT=off \
+  AGY_FIXED_OUTPUT="$SONNET_DONE" \
+  "$DELEGATE_REAL" --model 'claude-sonnet-4-6' --timeout 1s 'edit the fixture directly' \
+  >"$TMP/sonnet-complete.out" 2>"$TMP/sonnet-complete.err" \
+  && has "$TMP/sonnet-complete.out" 'POLYPHONY_FALLBACK_STATUS: COMPLETED'; then
+  ok "Sonnet direct-completion receipt is accepted"
+else
+  bad "Sonnet completion receipt"
 fi
 
 echo "wrapper PASS=$PASS FAIL=$FAIL"
