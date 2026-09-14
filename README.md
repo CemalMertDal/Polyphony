@@ -69,6 +69,19 @@ Polyphony provides two session-level routing modes:
 - **Always use Agy (strict)**: Substantive native tool calls (discovery, code edits, diff review, tests/build/lint diagnosis, Git operations, web research, media analysis, native subagents, and general terminal automation) are blocked with PreToolUse denials. The turn requires a completed, successful Agy work call (exit code 0 with non-empty output) before stopping. External or unproven connectors remain advisory.
 - **Use Agy when appropriate (soft)**: Non-blocking advisory reminders; native execution remains permitted.
 
+The choice is made at session start and controls how the host agent divides work between
+itself and Agy/Gemini workers:
+
+- **Soft** keeps the workflow flexible. The host decides case by case whether delegation
+  is worthwhile, so small or simple requests can stay with the host agent.
+- **Strict** delegates substantive work—including exploration, edits, review, tests, and
+  Git operations—to Agy/Gemini workers. The host agent mainly orchestrates the workers
+  and reports the result.
+
+<p align="center">
+  <img src="docs/agy-routing-modes.png" alt="Polyphony soft and strict routing mode selection" width="900">
+</p>
+
 **Default & session start:** Newly started, resumed, cleared, or forked sessions begin with routing mode unanswered and effective strict behavior (preserved across compact). At the first user-facing turn, the agent asks exactly one concise question presenting both canonical choices:
 - Always use Agy (strict)
 - Use Agy when appropriate (soft)
@@ -131,6 +144,10 @@ The plugin reads Agy's zero-token `/usage` response and tracks both the Gemini *
 **7d** windows. A failed, empty, or timed-out Gemini call triggers an immediate check.
 If either window has **2% or less remaining**, the wrapper enters depleted mode and does
 not switch models automatically.
+
+<p align="center">
+  <img src="docs/gemini-quota-control.png" alt="Polyphony Gemini quota depleted decision dialog" width="760">
+</p>
 
 Claude or Codex must ask the user to choose one of these paths:
 
