@@ -487,11 +487,15 @@ def handle_request(req: dict) -> dict | None:
     params = req.get("params") or {}
     if method == "initialize":
         requested = params.get("protocolVersion")
+        # Negotiate only a protocol version this adapter actually implements.
+        # Echoing an unknown client version makes otherwise healthy Claude/Codex
+        # MCP sessions close immediately during the handshake.
+        protocol_version = PROTOCOL_VERSION if requested != PROTOCOL_VERSION else requested
         return {
             "jsonrpc": "2.0",
             "id": req_id,
             "result": {
-                "protocolVersion": requested or PROTOCOL_VERSION,
+                "protocolVersion": protocol_version,
                 "capabilities": {"tools": {"listChanged": False}},
                 "serverInfo": {"name": "polyphony", "version": "0.31.10"},
             },
