@@ -3,6 +3,15 @@
 All notable changes to **Polyphony**. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions are in `.claude-plugin/plugin.json`.
 
+## 0.31.40 — Compact prompts and strict-mode helper exceptions
+
+- Require authored Agy task instructions to remain below 800 words on Claude and
+  Codex, including stdin and incrementally prepared prompt files; recommend 200–500.
+- Permit tiny local argument/arithmetic probes, status checks, prompt preparation,
+  and host-only capabilities in strict routing; exempt helper-only turns from the
+  completion gate while keeping substantive Agy-capable work delegated.
+- Preserve automatic review diff payloads under their existing data-size limit.
+
 ## 0.31.31 — Reliability and routing hardening
 
 - Make latest Flash discovery accept both tabular and JSON-style `agy models`

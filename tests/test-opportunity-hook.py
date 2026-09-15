@@ -307,7 +307,7 @@ class OpportunityHookTests(unittest.TestCase):
         """Inline Bash prompts must not reach the Windows shell size/quoting trap."""
         session = str(uuid.uuid4())
         self.set_mode(session, "Use Agy when appropriate (soft)")
-        prompt = "word " * 3501
+        prompt = "word " * 800
         output = self.invoke({
             "hook_event_name": "PreToolUse",
             "session_id": session,
@@ -318,9 +318,9 @@ class OpportunityHookTests(unittest.TestCase):
         hook = data["hookSpecificOutput"]
         self.assertEqual(hook.get("permissionDecision"), "deny")
         reason = hook.get("permissionDecisionReason", "")
-        self.assertIn("safe inline budget", reason)
-        self.assertIn("parallel Agy workers", reason)
-        self.assertIn("agy-delegate ... -", reason)
+        self.assertIn("compact instruction budget", reason)
+        self.assertIn("200–500 words", reason)
+        self.assertIn("stdin do not bypass", reason)
 
     # --- 5. Control-Plane Exemptions ---
 

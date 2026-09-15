@@ -133,10 +133,12 @@ For substantial work, keep that generous budget: use `--timeout 45m` or `--timeo
 for broad multi-file, Unity, or build-heavy tasks. Short timeouts are intended only for
 health probes; the Windows idle timeout is normally derived from the hard deadline.
 
-Inline Agy prompts are capped at 24,000 characters or 3,500 words to stay below Windows
-`bash -c`/CreateProcess and shell-quoting limits. Oversized work is rejected before launch;
-compress it into a scoped digest contract, split independent work across Agy workers, or
-pipe a larger prompt through stdin (`agy-delegate [options] -`) / a task file.
+Keep authored task instructions at 200–500 words and always below 800 words. At 800,
+Polyphony requires summarization, including for stdin and task files assembled in pieces.
+Reference source paths instead of pasting code. Automatically supplied review diffs have
+a separate data-size limit; inline transport also retains its 24,000-byte ceiling.
+
+**Strict-mode exceptions:** Tiny orchestration helpers (pure Python argument/text/arithmetic probes, working-directory or Git status/HEAD checks, temporary Agy prompt preparation) run locally. Host-only tools without equivalent Agy access remain advisory. Substantive discovery, implementation, review, tests and Git mutations still require Agy; a short command or the word `python` alone does not make substantive work exempt.
 
 ## Gemini quota control
 

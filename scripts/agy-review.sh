@@ -67,6 +67,9 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+GOAL_WORDS="$(printf '%s' "$GOAL" | wc -w | tr -d '[:space:]')"
+[ "$GOAL_WORDS" -lt 800 ] || die "review goal must be fewer than 800 words; summarize to 200-500 words before retrying"
+
 case "$TIER" in flash-medium|flash|pro) ;; *) die "--tier must be flash-medium, flash, or pro" ;; esac
 [ "$ADVERSARIAL" -eq 0 ] || [ "$TIER_EXPLICIT" -eq 1 ] || TIER="flash"
 case "$MAX_BYTES" in ''|*[!0-9]*) die "AGY_REVIEW_MAX_BYTES must be an integer" ;; esac
@@ -156,7 +159,7 @@ run_review() { # payload file, output file, byte limit
   # no-tools instruction, producing hundreds of irrelevant steps and apparent hangs.
   # A review-specific idle ceiling also bounds the agy/ConPTY case where a final
   # transcript is written but the CLI process fails to close.
-  (cd "$ROOT" && AGY_DELEGATE_READ_ONLY=1 "$DELEGATE" --tier "$TIER" --digest \
+  (cd "$ROOT" && AGY_REVIEW_DATA_PAYLOAD=1 AGY_DELEGATE_READ_ONLY=1 "$DELEGATE" --tier "$TIER" --digest \
     --timeout "$TIMEOUT" --idle-timeout "$REVIEW_IDLE_TIMEOUT" - <"$1" >"$2")
   RC=$?
   [ "$RC" -eq 0 ] || { echo "agy-review: delegation failed (exit $RC)" >&2; return "$RC"; }

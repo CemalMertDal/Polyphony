@@ -322,6 +322,10 @@ def _delegate_args(args: dict, include_prompt: bool = True) -> list[str]:
 
 
 def _dispatch(name: str, args: dict) -> dict:
+    instructions = "\n".join(args[k] for k in ("prompt", "question", "query", "goal", "focus")
+                             if isinstance(args.get(k), str))
+    if len(instructions.split()) >= 800:
+        raise ValueError("Agy instructions must be fewer than 800 words in total. Summarize to 200-500 words; do not bypass with files, stdin, or fragmented prompts.")
     if name == "delegate":
         return _run_shell("agy-delegate.sh", _delegate_args(args), _cwd(args))
 
@@ -497,7 +501,7 @@ def handle_request(req: dict) -> dict | None:
             "result": {
                 "protocolVersion": protocol_version,
                 "capabilities": {"tools": {"listChanged": False}},
-                "serverInfo": {"name": "polyphony", "version": "0.31.31"},
+                "serverInfo": {"name": "polyphony", "version": "0.31.40"},
             },
         }
     if method == "notifications/initialized":

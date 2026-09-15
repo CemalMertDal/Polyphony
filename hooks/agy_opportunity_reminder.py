@@ -11,6 +11,7 @@ Supports:
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import os
@@ -67,10 +68,10 @@ POLICY_FILES = {"claude.md", "agents.md"}
 # Keep inline Agy commands below the practical Windows `bash -c`/CreateProcess
 # budget.  The character ceiling is authoritative (quotes, paths, and shell
 # escaping count too); the word ceiling gives agents a useful prompt-level
-# signal before a huge code dump reaches that limit.  Prompts of any size can
-# still be sent safely through `agy-delegate -` (stdin) or a task file.
+# signal before a huge code dump reaches that limit. Authored instructions must
+# stay below 800 words even when assembled in a task file or delivered via stdin.
 DEFAULT_AGY_PROMPT_MAX_CHARS = 24000
-DEFAULT_AGY_PROMPT_MAX_WORDS = 3500
+DEFAULT_AGY_PROMPT_MAX_WORDS = 799
 
 CLAUDE_ONLY_TOOLS = {
     "askuserquestion", "enterplanmode", "exitplanmode", "skill", "toolsearch",
@@ -203,6 +204,7 @@ def _default_state() -> dict:
         "question_presented": False,
         "turn_id": "",
         "is_substantive": False,
+        "native_helper_used": False,
         "agy_attempted": False,
         "agy_success": False,
         "agy_failed": False,
@@ -369,8 +371,11 @@ def _is_policy_or_agy_plumbing(path: str) -> bool:
 def _is_agy_prompt_plumbing(path: str) -> bool:
     """Narrow write exemption for temporary Agy prompt/receipt files only."""
     normalized = path.replace("/", "\\").lower()
-    name = Path(path).name.lower()
+    name = normalized.rsplit("\\", 1)[-1]
     return (
+        ("\\temp\\claude\\" in normalized and "\\scratchpad\\" in normalized
+         and name.endswith((".md", ".txt")))
+        or
         name.startswith(("agy_task_", "agy_prompt_"))
         or (name.endswith(".output") and "\\tasks\\" in normalized)
         or "\\claude-agy-opportunity\\" in normalized
@@ -404,25 +409,108 @@ def _looks_like_agy_invocation(tool_name: str, tool_input: dict) -> bool:
     return bool(re.search(r"(?:^|[\s/])agy(?:[-_](?:delegate|scout|review|job|media|quota|trace|doctor|migrate))?\b", command, re.IGNORECASE))
 
 
-def _agy_prompt_budget_violation(tool_name: str, tool_input: dict) -> str | None:
-    """Return a deterministic safety denial for oversized inline Agy prompts.
+def _prompt_file_text(tool_name: str, tool_input: dict) -> str | None:
+    """Count the resulting task file, including earlier chunks, before writing."""
+    path = _path_from(tool_input)
+    operation = tool_name.lower()
+    content = tool_input.get("content")
+    if operation in SHELL_TOOL_NAMES:
+        prepared = _powershell_prompt_write(_get_shell_command(tool_input) or "")
+        if prepared is None:
+            return None
+        path, operation, content = prepared
+    if not path or not _is_agy_prompt_plumbing(path) or not path.lower().endswith((".md", ".txt")):
+        return None
+    try:
+        old = Path(path).read_text(encoding="utf-8-sig") if Path(path).is_file() else ""
+    except (OSError, UnicodeError):
+        return "word " * 800  # Cannot validate an append/edit; require a fresh compact Write.
+    if operation in {"write", "set-content"} and isinstance(content, str):
+        return content
+    if operation == "add-content" and isinstance(content, str):
+        return old + "\n" + content
+    if operation == "edit":
+        before, after = tool_input.get("old_string"), tool_input.get("new_string")
+        if isinstance(before, str) and isinstance(after, str) and before:
+            return old.replace(before, after, -1 if tool_input.get("replace_all") else 1)
+    return None
 
-    Claude's Bash tool constructs a new `bash -c` command.  A long prompt with
-    embedded quotes can therefore fail before `agy-delegate` starts (the common
-    symptom is `unexpected EOF while looking for matching \'`).  Codex MCP calls
-    are checked too so both hosts share the same compact-prompt contract.
+
+def _powershell_prompt_write(command: str) -> tuple[str, str, str] | None:
+    # Literal task text only: do not execute PowerShell or interpret expandable strings.
+    match = re.fullmatch(
+        r"\s*\$(\w+)\s*=\s*'([^'\r\n]+)'\s*[;\r\n]+\s*"
+        r"(Set-Content|Add-Content)\s+-(?:LiteralPath|Path)\s+\$(\w+)\s+"
+        r"-Encoding\s+utf8\s+-Value\s+@'\r?\n(.*?)\r?\n'@\s*;?\s*",
+        command, re.IGNORECASE | re.DOTALL,
+    )
+    if match and match[1].lower() == match[4].lower() and _is_agy_prompt_plumbing(match[2]):
+        return match[2], match[3].lower(), match[5]
+    return None
+
+
+def _small_local_helper(tool_name: str, tool_input: dict) -> bool:
+    """Recognize cheap orchestration, without blanket exemptions for python -c."""
+    if tool_name.lower() not in SHELL_TOOL_NAMES:
+        return False
+    command = _get_shell_command(tool_input) or ""
+    if _powershell_prompt_write(command):
+        return True
+    if command.strip() in {"pwd", "Get-Location", "git status --short", "git status --porcelain", "git rev-parse HEAD"}:
+        return True
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return False
+    if len(tokens) < 3 or tokens[0].lower() not in {"python", "python3", "python.exe", "py"} or tokens[1] != "-c":
+        return False
+    code = tokens[2]
+    if len(code) > 1000:
+        return False
+    try:
+        tree = ast.parse(code)
+    except (SyntaxError, ValueError):
+        return False
+    # Pure argument/text/arithmetic probes. No file IO, subprocess, eval, imports
+    # with effects, loops, or dynamic attribute access.
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            if any(alias.name != "sys" or alias.asname for alias in node.names):
+                return False
+        elif isinstance(node, ast.Attribute):
+            if not (isinstance(node.value, ast.Name) and node.value.id == "sys" and node.attr == "argv"):
+                return False
+        elif isinstance(node, ast.Call):
+            if not isinstance(node.func, ast.Name) or node.func.id not in {"print", "len", "str", "int", "repr", "abs", "min", "max", "round"} or node.keywords:
+                return False
+        elif isinstance(node, ast.Name):
+            if node.id not in {"sys", "print", "len", "str", "int", "repr", "abs", "min", "max", "round"}:
+                return False
+        elif not isinstance(node, (ast.Module, ast.Expr, ast.alias, ast.Load, ast.Constant,
+                                   ast.Subscript, ast.Slice, ast.BinOp, ast.UnaryOp,
+                                   ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv,
+                                   ast.Mod, ast.USub, ast.UAdd, ast.List, ast.Tuple)):
+            return False
+    # Arguments must be literal shell text; prohibit expansion/control outside quotes.
+    return not _has_unquoted_shell_control(command) and "$(" not in command and "`" not in command
+
+
+def _agy_prompt_budget_violation(tool_name: str, tool_input: dict) -> str | None:
+    """Enforce compact instructions across both hosts and task-file preparation.
+
+    The shared delegate additionally validates fully assembled stdin/file content.
     """
-    if not _looks_like_agy_invocation(tool_name, tool_input):
+    file_text = _prompt_file_text(tool_name, tool_input)
+    if file_text is None and not _looks_like_agy_invocation(tool_name, tool_input):
         return None
 
     lowered = tool_name.lower()
     prompt = ""
-    if lowered.startswith("mcp__antigravity__"):
-        for key in ("prompt", "question", "query", "goal"):
-            value = tool_input.get(key)
-            if isinstance(value, str) and value.strip():
-                prompt = value
-                break
+    if file_text is not None:
+        prompt = file_text
+    elif lowered.startswith("mcp__antigravity__"):
+        prompt = "\n".join(tool_input[k] for k in ("prompt", "question", "query", "goal", "focus")
+                           if isinstance(tool_input.get(k), str))
     else:
         command = _get_shell_command(tool_input) or ""
         # If shell quoting is already malformed, tokenisation is impossible;
@@ -438,18 +526,17 @@ def _agy_prompt_budget_violation(tool_name: str, tool_input: dict) -> str | None
     if not prompt:
         return None
     max_chars = _limit("AGY_PROMPT_MAX_CHARS", DEFAULT_AGY_PROMPT_MAX_CHARS)
-    max_words = _limit("AGY_PROMPT_MAX_WORDS", DEFAULT_AGY_PROMPT_MAX_WORDS)
+    max_words = min(_limit("AGY_PROMPT_MAX_WORDS", DEFAULT_AGY_PROMPT_MAX_WORDS), DEFAULT_AGY_PROMPT_MAX_WORDS)
     chars = len(prompt)
     words = len(prompt.split())
     if chars <= max_chars and words <= max_words:
         return None
     return (
-        "Agy prompt exceeds the safe inline budget "
+        "Agy prompt exceeds the compact instruction budget "
         f"({chars:,} chars/{words:,} words; limits {max_chars:,} chars/{max_words:,} words). "
-        "Do not retry the same oversized command. Compress the contract and request a "
-        "digest, split independent work across sequential or parallel Agy workers, or "
-        "pass the prompt via stdin/task file (`agy-delegate ... -`) so shell quoting and "
-        "Windows command-line limits cannot truncate it."
+        "Rewrite and summarize before proceeding: aim for 200–500 words, always fewer than 800. "
+        "Count all chunks together. Files and stdin do not bypass this limit. "
+        "Use file paths instead of pasted code; split independent tasks only when useful."
     )
 
 
@@ -766,6 +853,9 @@ def is_any_agy_call(tool_name: str, tool_input: dict) -> bool:
 
 def is_control_plane_exempt(tool_name: str, tool_input: dict) -> bool:
     lowered_name = tool_name.lower()
+
+    if _small_local_helper(tool_name, tool_input):
+        return True
 
     if lowered_name in {"askuserquestion", "request_user_input", "ask_user_question"}:
         return True
@@ -1269,6 +1359,7 @@ def handle_user_prompt_submit(data: dict, state: dict, session_id: str, turn_id:
 
     state["turn_id"] = turn_id
     state["is_substantive"] = False
+    state["native_helper_used"] = False
     state["agy_attempted"] = False
     state["agy_success"] = False
     state["agy_failed"] = False
@@ -1349,13 +1440,14 @@ def handle_pre_tool_use(data: dict, state: dict, session_id: str) -> None:
 
     budget_error = _agy_prompt_budget_violation(tool_name, tool_input)
     if budget_error:
-        # This is transport safety, not a routing preference: retrying the same
-        # inline command will deterministically hit the shell limit in both soft
-        # and strict sessions.  The message gives the agent safe alternatives.
+        # Prompt optimization is mandatory in both strict and soft routing modes.
         _emit_deny("PreToolUse", budget_error)
         return
 
     if is_control_plane_exempt(tool_name, tool_input):
+        if _small_local_helper(tool_name, tool_input):
+            state["native_helper_used"] = True
+            _write_state(session_id, state)
         return
 
     if is_any_agy_call(tool_name, tool_input):
@@ -1380,6 +1472,9 @@ def handle_pre_tool_use(data: dict, state: dict, session_id: str) -> None:
     quota_context = _quota_context()
 
     if category == "external":
+        # Host-only capabilities without a proven Agy equivalent stay native.
+        state["native_helper_used"] = True
+        _write_state(session_id, state)
         warned = set(state.get("warned_categories") or [])
         if "external" not in warned:
             warned.add("external")
@@ -1526,6 +1621,8 @@ def handle_stop(data: dict, state: dict, session_id: str) -> None:
         return
 
     # Strict mode
+    if state.get("native_helper_used") and not state.get("agy_attempted") and not state.get("denied_categories"):
+        return
     if state.get("user_mode_selection") is True or not state.get("is_substantive"):
         return
 
@@ -1567,6 +1664,7 @@ def main():
     if turn_id and turn_id != state.get("turn_id"):
         state["turn_id"] = turn_id
         state["is_substantive"] = False
+        state["native_helper_used"] = False
         state["agy_attempted"] = False
         state["agy_success"] = False
         state["agy_failed"] = False

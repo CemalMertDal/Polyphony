@@ -22,7 +22,7 @@ the model — routing, shared rules, verification gates — not raw generation.
 ## Routing modes (session-level enforcement)
 
 Polyphony provides two session-level routing modes:
-- **Always use Agy (strict)**: All substantive work (discovery, implementation/edits, diff review, tests/build/lint diagnosis, Git operations, web research, media analysis, subagents, and general terminal automation) is gated and must be delegated to Antigravity wrappers or MCP tools. Substantive turns require a completed, successful Agy work call (exit code 0, non-empty output).
+- **Always use Agy (strict)**: Substantive Agy-capable work (discovery, implementation/edits, diff review, tests/build/lint diagnosis, Git operations, web research, media analysis, subagents, and general terminal automation) is gated and must be delegated to Antigravity wrappers or MCP tools. Substantive turns require a completed, successful Agy work call (exit code 0, non-empty output).
 - **Use Agy when appropriate (soft)**: Non-blocking advisory reminders; native execution remains permitted.
 
 **Default & session start:** Newly started, resumed, cleared, or forked sessions begin with routing mode unanswered and effective strict behavior (preserved across compact). At the first user-facing turn, the agent must ask exactly one concise question presenting both visible choices:
@@ -36,13 +36,9 @@ the selected mode before the next tool call.
 
 **Control-plane exceptions:** Presenting the mode question, mode recording/changes, quota checks/choices, job/trace/doctor/cancel management, reading bootstrap policy/config, and user interaction are exempt from delegation gating.
 
-**Prompt transport budget:** Keep every inline Agy prompt below **24,000 characters and
-3,500 words**. This is a shared safety ceiling for Claude Bash, Windows `bash -c`, and
-Codex MCP payloads. If either limit is exceeded, compress the contract and request a
-digest, split independent work across sequential/parallel workers, or pipe the prompt
-through stdin (`agy-delegate [options] -`) / a task file. Do not retry the same oversized
-inline command; Polyphony's hook and wrapper reject it before it can hit shell quoting or
-CreateProcess limits.
+**Compact task contracts (Claude and Codex, all effort levels):** Aim for 200–500 words and keep the total authored instructions strictly below 800 words. At 800 words, stop and summarize before launching or writing more. Count all pieces of the same prompt together; stdin, task files, and multiple writes are not exemptions. Reference paths and desired outcomes instead of pasting code or step-by-step implementation. Split genuinely independent tasks when useful; never split one oversized prompt merely to evade the cap. Wrapper-generated review diffs are source data and retain their separate size limit.
+
+**Strict-mode exceptions:** Tiny orchestration helpers (pure Python argument/text/arithmetic probes, working-directory or Git status/HEAD checks, temporary Agy prompt preparation) run locally. Host-only tools without equivalent Agy access remain advisory. Substantive discovery, implementation, review, tests and Git mutations still require Agy; a short command or the word `python` alone does not make substantive work exempt.
 
 **Timeout discipline:** Use at least the default **30-minute** hard timeout for real work;
 choose **45–60 minutes** for broad multi-file, Unity, or build-heavy delegations. Reserve

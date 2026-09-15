@@ -423,6 +423,12 @@ while [ $# -gt 0 ]; do
 done
 
 [ -n "$PROMPT" ] || die "no prompt given (pass a string, or '-' to read stdin)"
+# Authored instructions stay compact on every transport, including assembled files.
+# Only review's already-validated goal plus machine-generated diff payload is exempt.
+if [ "${AGY_REVIEW_DATA_PAYLOAD:-0}" != 1 ] || [ "${AGY_DELEGATE_READ_ONLY:-0}" != 1 ] || [ "$PROMPT_FROM_STDIN" -ne 1 ]; then
+  PROMPT_WORDS="$(printf '%s' "$PROMPT" | wc -w | tr -d '[:space:]')"
+  [ "$PROMPT_WORDS" -lt 800 ] || die "prompt has ${PROMPT_WORDS} words. Rewrite/summarize to 200-500 words and always fewer than 800; count all pieces together. Files and stdin do not bypass this limit. Reference source paths or split genuinely independent tasks."
+fi
 # --print-command is a dry run (introspection), so it doesn't require agy on PATH.
 # On Windows the bridge also honours AGY_PATH and agy's default install dirs.
 if [ "$PRINT_CMD" -ne 1 ] && ! command -v agy >/dev/null 2>&1 \
@@ -518,18 +524,14 @@ fi
 # Inline prompts are ultimately embedded in a `bash -c`/CreateProcess command by
 # Claude's Bash tool. Keep a conservative transport budget so a valid-looking
 # delegation cannot fail before agy starts with `unexpected EOF` or an argv limit.
-# Stdin (`agy-delegate ... -`) and task files are explicitly exempt: the prompt
-# then travels as file data and may be larger, although digest/splitting is still
-# recommended for model quality and token cost.
+# The separate instruction-word check above applies to stdin too. This byte guard
+# only limits inline transport, after wrapper-owned instructions have been appended.
 if [ "$PROMPT_FROM_STDIN" -eq 0 ]; then
   PROMPT_MAX_CHARS="${AGY_PROMPT_MAX_CHARS:-24000}"
-  PROMPT_MAX_WORDS="${AGY_PROMPT_MAX_WORDS:-3500}"
   case "$PROMPT_MAX_CHARS" in ''|*[!0-9]*|0) PROMPT_MAX_CHARS=24000 ;; esac
-  case "$PROMPT_MAX_WORDS" in ''|*[!0-9]*|0) PROMPT_MAX_WORDS=3500 ;; esac
   PROMPT_CHARS="$(LC_ALL=C printf '%s' "$PROMPT" | wc -c | tr -d '[:space:]')"
-  PROMPT_WORDS="$(printf '%s' "$PROMPT" | wc -w | tr -d '[:space:]')"
-  if [ "$PROMPT_CHARS" -gt "$PROMPT_MAX_CHARS" ] || [ "$PROMPT_WORDS" -gt "$PROMPT_MAX_WORDS" ]; then
-    die "inline prompt exceeds safe budget (${PROMPT_CHARS} chars/${PROMPT_WORDS} words; limits ${PROMPT_MAX_CHARS} chars/${PROMPT_MAX_WORDS} words). Compress/split the task, use independent Agy workers, or pipe it via stdin: agy-delegate [options] -"
+  if [ "$PROMPT_CHARS" -gt "$PROMPT_MAX_CHARS" ]; then
+    die "inline prompt exceeds safe byte budget (${PROMPT_CHARS}; limit ${PROMPT_MAX_CHARS}). Use stdin for transport; the fewer-than-800-word instruction limit still applies."
   fi
 fi
 
